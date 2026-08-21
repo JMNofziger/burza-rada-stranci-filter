@@ -2,6 +2,8 @@ name: HZZ one-off full scrape
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 # Manual complete Grad Zagreb scrape. Not on the daily cron.
 # Checkpoints SQLite after the list walk and after every details batch so a
@@ -101,7 +103,7 @@ jobs:
               echo "No state DB; skip persist ($msg)"
               return 0
             fi
-            git add data/hzz_jobs.sqlite3
+            git add data/hzz_jobs.sqlite3 docs/jobs.json
             if git diff --cached --quiet; then
               echo "No SQLite changes to persist ($msg)"
               return 0
@@ -146,6 +148,25 @@ jobs:
           fi
 
           python main.py full-scrape --phase status
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  publish-board:
+    name: Publish jobs board
+    needs: scrape
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.pages.outputs.page_url }}
+    steps:
+      - name: Deploy jobs board
+        id: pages
+        uses: actions/deploy-pages@v4
 
   alert-scrape:
     name: Critical alert (full scrape failed)

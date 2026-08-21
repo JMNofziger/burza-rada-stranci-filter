@@ -2,6 +2,8 @@ name: HZZ Zagreb daily digest
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 # Unattended daily pull: GitHub Actions cron fires without anyone prompting.
 # Scheduled workflows only run on the default branch (main) after this file
@@ -81,17 +83,32 @@ jobs:
         run: pip install -r requirements.txt
       - name: Run daily pipeline
         run: python main.py daily
-      - name: Persist state DB
+      - name: Persist state DB and jobs board
         run: |
           git config user.name "hzz-digest-bot"
           git config user.email "actions@users.noreply.github.com"
-          if [ -f data/hzz_jobs.sqlite3 ]; then
-            git add data/hzz_jobs.sqlite3
-            git diff --cached --quiet || git commit -m "chore: update job state DB [skip ci]"
-            git push
-          else
-            echo "No state DB produced; skipping persist step."
-          fi
+          git add data/hzz_jobs.sqlite3 docs/jobs.json
+          git diff --cached --quiet || git commit -m "chore: update job state DB [skip ci]"
+          git push
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  publish-board:
+    name: Publish jobs board
+    needs: collect
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.pages.outputs.page_url }}
+    steps:
+      - name: Deploy jobs board
+        id: pages
+        uses: actions/deploy-pages@v4
 
   alert-collect:
     name: Critical alert (full collect failed)

@@ -50,6 +50,9 @@ PAGE_SIZE_FIELD = "ctl00$MainContent$ddlPageSize"
 # ---------------------------------------------------------------------------
 DATA_DIR = Path("data")
 DB_PATH = Path(os.environ.get("HZZ_DB_PATH") or (DATA_DIR / "hzz_jobs.sqlite3"))
+# Static job board (GitHub Pages). Regenerated after each successful collect.
+WEB_DIR = Path("docs")
+JOBS_JSON_PATH = WEB_DIR / "jobs.json"
 
 TELEGRAM_ENV_TOKEN = "TELEGRAM_BOT_TOKEN"
 TELEGRAM_ENV_CHAT_ID = "TELEGRAM_CHAT_ID"
