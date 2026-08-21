@@ -1,189 +1,344 @@
 # HZZ Zagreb foreign-friendly job digest
 
-Automated daily aggregation of Burza rada (HZZ) listings in Zagreb that look
-open to hiring third-country nationals, ranked by application urgency.
+Personal pipeline that scrapes [Burza rada (HZZ)](https://burzarada.hzz.hr)
+for **GRAD ZAGREB** listings that look open to third-country nationals, then:
+
+1. Sends **English Telegram** digests (new matches only after the first fill).
+2. Publishes a **phone-friendly jobs board** on GitHub Pages, updated after
+   each successful collect.
+
+HZZ ads are public. Telegram bot tokens stay in gitignored `.env` / Actions
+secrets. Do not commit `.env`.
+
+## Contents
+
+- [Quick start](#quick-start)
+- [Secrets](#secrets)
+- [GitHub Actions workflows](#github-actions-workflows)
+  - [Shared behaviour](#shared-behaviour)
+  - [Tests](#1-tests--githubworkflowstestyml)
+  - [HZZ Zagreb daily digest](#2-hzz-zagreb-daily-digest--githubworkflowsdailyyml)
+  - [HZZ one-off full scrape](#3-hzz-one-off-full-scrape--githubworkflowsfull-scrapeyml)
+  - [Deploy jobs board](#4-deploy-jobs-board--githubworkflowspagesyml)
+- [CLI reference](#cli-reference)
+- [Jobs board](#jobs-board)
+- [What is stored](#what-is-stored)
+- [GitHub limits](#github-limits)
+- [Live site behaviour](#live-site-behaviour-verified-2026-08-21)
+- [Design notes](#design-notes)
 
 ## Quick start
 
 ```bash
 pip install -r requirements.txt
-cp .env.example .env          # local secrets; never commit .env
-# edit .env: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID
+cp .env.example .env          # never commit .env
+# set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID
 
-python main.py bootstrap      # one-time: queue existing matches into a 6-day review
-python main.py daily          # collect new matches (cron target)
-python main.py full-scrape --phase status   # resumable one-off complete scrape
+python main.py chat-id        # find your chat id, send a ping
+python main.py telegram-check # secrets only, no scrape
+python main.py smoke          # cheap live probe, no Telegram
 ```
 
-`.env` is gitignored. GitHub Actions uses repo secrets with the same names
-instead of that file.
+Unattended collection is **GitHub Actions**, not a laptop cron. See workflows
+below. After the first successful collect, the board is
+`https://jmnofziger.github.io/burza-rada-stranci-filter/`.
 
-## Jobs board (phone + desktop)
+## Secrets
 
-The matching-jobs board is a **public GitHub Pages site**, not a local server.
-Filters sit in a side drawer (shopping-style): expiry window, location,
-employer, Telegram-sent, plus search and sort. The page is rebuilt from
-SQLite after every successful `daily` / full-scrape notify (`docs/jobs.json`).
+| Name | Where | Used by |
+|------|--------|---------|
+| `TELEGRAM_BOT_TOKEN` | `.env` locally; repo **Actions secret** in CI | all scrape/alert workflows, `telegram-check` |
+| `TELEGRAM_CHAT_ID` | same | same |
 
-After merge:
+The bot is **send-only**. Silence after Start in Telegram is expected.
 
-1. Make the repo **public** (Pages is free on public repos; the HZZ ads are
-   already public). Keep Telegram secrets in Actions / `.env`.
+1. [@BotFather](https://t.me/BotFather) → `/newbot` → token.
+2. Open **your** bot, tap Start, send `hi`.
+3. `python main.py chat-id` prints `TELEGRAM_CHAT_ID=…` and sends a ping.
+4. Paste both values into `.env` **and** Settings → Secrets and variables → Actions.
+
+A user chat id is a positive integer. A channel/group id is usually negative
+(often `-100…`). For a channel, add the bot as admin, post once, re-run
+`chat-id`. Or inspect `https://api.telegram.org/botTOKEN/getUpdates`.
+
+`python main.py telegram-check` calls Telegram `getMe` + `getChat` only — no
+digest, no scrape.
+
+## GitHub Actions workflows
+
+There are **four** workflow files. Open **Actions** in the GitHub UI to run
+the two that have a **Run workflow** button.
+
+| Workflow file | UI name | When it runs | Manual? |
+|---------------|---------|--------------|---------|
+| `.github/workflows/test.yml` | Tests | every push and pull request | no |
+| `.github/workflows/daily.yml` | HZZ Zagreb daily digest | cron `06:00 UTC` **and** manual | yes |
+| `.github/workflows/full-scrape.yml` | HZZ one-off full scrape | manual only | yes |
+| `.github/workflows/pages.yml` | Deploy jobs board | push to `main` that touches `docs/` | no |
+
+### Shared behaviour
+
+- **Runner:** `ubuntu-latest` (Linux, 1× minutes). Do not switch to Windows/macOS.
+- **Python:** 3.12 via `actions/setup-python@v6`; `checkout@v5`.
+- **Secrets:** scrape/alert jobs inject `TELEGRAM_BOT_TOKEN` and
+  `TELEGRAM_CHAT_ID`. Missing secrets fail `telegram-check` / `daily`.
+- **Concurrency group `hzz-pipeline`:** daily and full-scrape **queue**, they
+  do not cancel each other (`cancel-in-progress: false`). They share the
+  SQLite file; overlapping would corrupt git history.
+- **Concurrency group `github-pages`:** Pages deploys; newer deploy can
+  cancel an older one.
+- **`[skip ci]` commits:** persist steps commit SQLite / `docs/jobs.json`
+  with `[skip ci]` so Tests does not re-run. Daily/full-scrape still deploy
+  Pages **in the same run** (they do not rely on `pages.yml` for data
+  updates).
+- **Scheduled workflows** only fire from the **default branch** (`main`)
+  after the file is merged.
+- **Smoke** is silent on success. Telegram only on failure (CRITICAL).
+
+---
+
+### 1. Tests — `.github/workflows/test.yml`
+
+**UI name:** Tests  
+**Trigger:** `push`, `pull_request` (no inputs).  
+**Purpose:** unit tests + prove Telegram secrets are valid. No HZZ scrape.
+
+| Job | Timeout | What it does | On failure |
+|-----|---------|--------------|------------|
+| `unittest` | default | `python -m unittest discover -s tests -v` | PR/push is red |
+| `telegram-check` | default | `python main.py telegram-check` | PR/push is red; scrape workflows would fail too |
+
+No `workflow_dispatch` options.
+
+---
+
+### 2. HZZ Zagreb daily digest — `.github/workflows/daily.yml`
+
+**UI name:** HZZ Zagreb daily digest  
+**How to run:** Actions → this workflow → **Run workflow**.  
+**Also:** cron `0 6 * * *` UTC ≈ 08:00 CEST / 07:00 CET.
+
+This is the **main product path**: health probe, then (unless you asked for
+smoke-only) a full Grad Zagreb collect of **new** matches, Telegram, prune,
+rewrite `docs/jobs.json`, commit state, publish Pages.
+
+#### Inputs (`workflow_dispatch`)
+
+| Input | Type | Default | Options | Meaning |
+|-------|------|---------|---------|---------|
+| **run_size** | choice | `smoke` | `smoke`, `full` | See below. Cron ignores this and always behaves like **full**. |
+
+**`run_size = smoke`**
+
+- Runs **Smoke scrape** only (plus alert if it fails).
+- Does **not** run Full collect, does **not** Telegram a digest, does **not**
+  update SQLite or the board.
+- Use this to check “is the site + secrets OK?” in a few minutes.
+
+**`run_size = full`**
+
+- Smoke first. If smoke fails, collect is skipped and you get a CRITICAL
+  Telegram.
+- If smoke passes: `python main.py daily` (all Grad Zagreb categories,
+  skip already-inspected `WebSifra`s, Telegram new matches or a zero
+  notice, backlog day if any remain, prune, export board JSON).
+- Commits `data/hzz_jobs.sqlite3` + `docs/jobs.json`, deploys Pages.
+
+**Cron (`schedule`)** is always the full path (smoke gate, then collect).
+There is no cron-only input.
+
+#### Jobs (in order)
+
+| Job | Needs | Runs when | Timeout | What it does |
+|-----|-------|-----------|---------|--------------|
+| **Smoke scrape** | — | always | 10 min | `telegram-check`, then `python main.py smoke` (1 category, 5 listings cap) |
+| **Critical alert (smoke failed)** | smoke | smoke **failed** | 5 min | Telegram CRITICAL; collect skipped |
+| **Full collect** | smoke | smoke **succeeded** **and** (cron **or** `run_size != smoke`) | 90 min | `python main.py daily`; git persist; upload Pages artifact |
+| **Publish jobs board** | collect | collect succeeded | 10 min | `actions/deploy-pages` to the `github-pages` environment |
+| **Critical alert (full collect failed)** | collect | collect **failed** | 5 min | Telegram CRITICAL. Unseen matches catch up on the next success |
+
+Empty DB on first full collect: existing matches are **backlog** (6-day
+review), not “new today”. A zero “new listings” Telegram is sent, then day-1
+backlog if any.
+
+If the last successful collect was **2+ calendar days** ago, the new-matches
+title is a **catch-up**.
+
+---
+
+### 3. HZZ one-off full scrape — `.github/workflows/full-scrape.yml`
+
+**UI name:** HZZ one-off full scrape  
+**How to run:** Actions → this workflow → **Run workflow**.  
+**Not on cron.** Use this for a complete Grad Zagreb pass (~1,000 detail
+pages) that can **resume** after failure.
+
+Same smoke gate as daily. Then a single long job walks phases with git
+checkpoints. Daily and this workflow share `hzz-pipeline`.
+
+#### Inputs (`workflow_dispatch`)
+
+| Input | Type | Default | Options | Meaning |
+|-------|------|---------|---------|---------|
+| **start_phase** | choice | `all` | `all`, `list`, `details`, `notify` | Where to begin. Finished work is skipped via SQLite checkpoints. |
+| **detail_batch_size** | string (positive integer) | `40` | e.g. `20`, `40`, `80` | How many detail pages to fetch **between git commits**. Smaller = less lost work if the job dies; more commits = fatter git history. Must be an integer `> 0`. |
+| **reset_list** | boolean | `false` | `false` / `true` | Only affects **list**. `true` starts a **new** occupation-category walk and ignores leftover category checkpoints. |
+
+**`start_phase` in detail**
+
+| Value | List walk | Detail fetches | Telegram / backlog | Typical use |
+|-------|-----------|----------------|--------------------|-------------|
+| **all** | Yes (skips categories already marked complete on the open run) | Yes, until `details_pending = 0` | Yes | First complete scrape, or resume everything left |
+| **list** | Yes | No | No | Rebuild the listing index only |
+| **details** | No | Yes, remaining pending rows | No (unless you also… you don’t; this value skips notify) | List already saved; continue scoring |
+| **notify** | No | No | Yes | Details done; send Telegram / seed backlog / mark success |
+
+After `list` or `details` only, run again with the next phase (or `all`) to
+finish. `python main.py full-scrape --phase status` prints JSON
+(`suggested_phase`, `details_pending`, `unnotified`, …).
+
+**`reset_list = true`:** new scrape-run id, walk every occupation category
+again. Use for a later full re-list, not for resuming a failed list (resume
+with `false` so completed categories stay skipped).
+
+**First successful notify** on an empty collect history seeds the **6-day
+backlog** instead of flooding Telegram with every match as “new”.
+
+#### Jobs (in order)
+
+| Job | Needs | Runs when | Timeout | What it does |
+|-----|-------|-----------|---------|--------------|
+| **Smoke scrape** | — | always | 10 min | same as daily smoke |
+| **Critical alert (smoke failed)** | smoke | smoke failed | 5 min | Telegram; scrape skipped |
+| **Resumable full scrape** | smoke | smoke succeeded | 180 min | phases per `start_phase`; persist SQLite + `jobs.json` after list and after **each** details batch; upload Pages artifact |
+| **Publish jobs board** | scrape | scrape succeeded | 10 min | deploy Pages |
+| **Critical alert (full scrape failed)** | scrape | scrape failed | 5 min | Telegram: re-run from `details` or `notify` |
+
+If the scrape job dies mid-batch, at most `detail_batch_size` detail pages
+are lost. Re-run with `start_phase = details`.
+
+---
+
+### 4. Deploy jobs board — `.github/workflows/pages.yml`
+
+**UI name:** Deploy jobs board  
+**Trigger:** push to **`main`** whose changed files include `docs/**` or this
+workflow file. **No inputs.**
+
+Used when HTML/CSS/JS of the board changes (a merge). Data-only persist
+commits use `[skip ci]` and **do not** start this workflow; daily/full-scrape
+deploy Pages themselves.
+
+| Job | Timeout | What it does |
+|-----|---------|--------------|
+| **deploy** | 10 min | checkout, `configure-pages`, upload `docs/`, `deploy-pages` (`github-pages` environment) |
+
+**One-time GitHub setup**
+
+1. Repo **public** (Pages is free; listings are already public).
 2. Settings → Pages → Source **GitHub Actions**.
-3. URL: `https://jmnofziger.github.io/burza-rada-stranci-filter/`
+3. First deploy may create the `github-pages` environment; allow it if
+   GitHub asks.
 
-The first collect (or this PR’s Pages workflow) publishes the board. Later
-days overwrite `docs/jobs.json` and redeploy.
+URL: `https://jmnofziger.github.io/burza-rada-stranci-filter/`
 
-## Telegram chat ID
+---
 
-The bot is **send-only**. It will not reply when you type in the chat. Silence
-after Start is normal.
+## CLI reference
 
-1. Talk to [@BotFather](https://t.me/BotFather), `/newbot`, copy the token into `TELEGRAM_BOT_TOKEN`.
-2. Open **your** bot (not BotFather), tap **Start**, send `hi`.
-3. Run:
+All commands: `python main.py <mode> [options]`. Locally, `.env` is loaded
+and does not override variables already in the environment (Actions secrets
+win in CI).
 
-```bash
-python main.py chat-id
-```
+| Mode | Options | What it does | Telegram | Writes DB | Writes `docs/jobs.json` |
+|------|---------|--------------|----------|-----------|-------------------------|
+| **bootstrap** | — | Score all Zagreb matches; bucket into 6-day backlog. Does not send. | no | yes | no |
+| **daily** | — | Collect new matches; Telegram new or zero notice; next backlog day; prune; export board. Empty DB seeds backlog instead of “all new”. | yes | yes | yes (on success) |
+| **full-scrape** | `--phase`, `--limit`, `--reset-list` | See below | **notify** only | yes (list/details/notify) | yes after details batches and notify |
+| **export-web** | — | Rebuild `docs/jobs.json` from current `jobs` table | no | no | yes |
+| **smoke** | env caps | 1 category, few rows, one detail page. No digest. | no | no (unless you pointed `HZZ_DB_PATH` at prod) | no |
+| **telegram-check** | — | `getMe` + `getChat` | no | no | no |
+| **chat-id** | — | Print chats; ping each | ping | no | no |
+| **alert-critical** | optional `message` | Send CRITICAL Telegram | yes | no | no |
 
-That prints `TELEGRAM_CHAT_ID=…` and sends one confirmation message so you
-know it works. Paste the id into `.env` and into the GitHub Actions secret.
+### `full-scrape` flags
 
-To confirm GitHub Actions secrets without scraping HZZ:
-
-```bash
-python main.py telegram-check   # local .env, or CI injects repo secrets
-```
-
-That calls Telegram `getMe` + `getChat` only — no digest, no chat message.
-CI runs the same check on every push/PR and before the daily scrape.
-
-A user chat id is a positive integer. A channel/group id is usually negative (often starts with `-100`). For a channel, add the bot as an admin, post a message in the channel, then re-run `chat-id`.
-
-Alternatively open this URL in a browser after messaging the bot (replace `TOKEN`):
-
-`https://api.telegram.org/botTOKEN/getUpdates`
-
-Look for `"chat":{"id": 123456789`.
-
-## What runs when
-
-| Mode | Purpose |
-|------|---------|
-| **daily** (main feature) | Scrape every day. Publish **only brand-new** filter matches. If none, send an explicit "no new ads" Telegram. |
-| **bootstrap** | One-time backlog: existing matches paced across 6 days so reviewing current posts is sane. `daily` sends the next bucket until that queue is empty. |
-| **full-scrape** | Manual complete Grad Zagreb pass, split into **list → details → notify** so a failure resumes from the last checkpoint instead of starting over. |
-| **export-web** | Rewrite `docs/jobs.json` from the current DB (also runs at the end of a successful collect). |
-
-Collection stays daily even if you later switch publishing to weekly
-(`NEW_MATCH_PUBLISH_CADENCE = "weekly"` in `config.py`). Expiry-soon
-alerts are not part of this path yet.
-
-## Unattended daily run
-
-The GitHub Actions workflow `.github/workflows/daily.yml` already runs
-`python main.py daily` on a cron (`06:00 UTC`) with no human prompt.
-
-For that schedule to actually fire:
-
-1. **Merge this workflow to `main`.** GitHub only runs `on.schedule` from the
-   default branch.
-2. **Add repo secrets** `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`
-   (Settings → Secrets and variables → Actions).
-3. **Allow Actions** on the repo (Settings → Actions → General).
-4. Click **Run workflow** and leave **run_size = smoke** for a silent health
-   probe (Telegram only if it fails). Cron and **full** always run that probe
-   first; on failure a **CRITICAL** alert is sent and the large collect is
-   skipped. Missed days are not dropped: the next successful collect publishes
-   all unseen matches and labels a catch-up if the last success was 2+ days ago.
-
-The first daily run seeds ~1,000 Grad Zagreb list rows into SQLite so they
-are not mistaken for "new today". Later days only fetch unseen `WebSifra`s
-and Telegram the new filter matches (or a zero notice). The SQLite state
-file is committed back to the repo so dedup survives ephemeral runners.
-Daily collect also records every listed `WebSifra` in `inspected`, including
-non-matches, so later runs do not re-fetch those detail pages.
-
-Expired ads (jobs **and** inspected) are deleted **3 calendar days after**
-`deadline_date`. Open-ended ads are deleted **90 days after** first seen /
-listed. Then the file is `VACUUM`ed. That keeps the *current* DB small; it
-does **not** shrink git history (see below).
-
-## GitHub limits
-
-The HZZ ads themselves are public, so **making this repo public is fine**
-and is the simplest way off the private-repo 2,000-minute cap. Keep
-`TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` in Actions secrets and `.env`
-(already gitignored). Do not commit `.env`.
-
-| Constraint | Our plan | Verdict |
-|---|---|---|
-| **Public repo + `ubuntu-latest`** | Minutes are free | Preferred if you want zero Actions billing |
-| **Private + Free plan** | 2,000 Linux min/month | One full scrape ~40–70 min; hung jobs still bill until timeout |
-| **Job cap 6h** / our timeouts 90–180 min | Full scrape should finish in <90 min | OK |
-| **Repo size ~1 GB warn / 5 GB hard** | SQLite is tiny; **git history of binary SQLite is not** | Real risk either way |
-| **100 MB file cap** | Unlikely at this volume | OK |
-| **API 1,000 req/hour** | ~27 `git push` checkpoints per full scrape | OK |
-
-**The SQLite-in-git pattern is the limit we will hit first**, not Actions minutes and not row count. Each daily persist and each details batch commits the *whole* DB as a new blob. Git barely deltas binary SQLite, so history grows with **number of persists**, not live rows. Pruning shrinks today's file; old checkpoints stay forever unless we rewrite history.
-
-Do **not** use macOS/Windows runners or raise `timeout-minutes` toward 360. If `.git` gets large, stop committing the DB and move state off git.
-
-## Manual one-off full scrape
-
-Use this when you want every Grad Zagreb listing scored in one sitting (~1,000
-detail pages). It is **workflow_dispatch only** — not on the daily cron.
-
-Phases (each is restartable):
-
-1. **list** — walk occupation categories and record every `WebSifra` in
-   `inspected`. Finished categories are checkpointed per scrape run, so a
-   mid-walk failure skips them on retry.
-2. **details** — fetch + score pending inspected rows in batches (default 40).
-   Each batch is committed back to git. Failed fetches stay pending.
-3. **notify** — Telegram. If this is the first successful collect, matches are
-   seeded into the 6-day backlog (same as an empty-DB daily) instead of one
-   flood of "new" ads.
+| Flag | Default | Values | Meaning |
+|------|---------|--------|---------|
+| `--phase` | `status` | `status`, `list`, `details`, `notify`, `all` | Same idea as the workflow `start_phase`. `status` prints JSON to stdout (logs on stderr). `all` is list → remaining details → notify (local; no git checkpoints unless you commit). |
+| `--limit` | `0` | integer | Details batch size. `0` = all remaining pending rows. Workflow passes `detail_batch_size`. |
+| `--reset-list` | off | flag | Same as workflow `reset_list: true`. |
 
 ```bash
 python main.py full-scrape --phase status
 python main.py full-scrape --phase list
 python main.py full-scrape --phase details --limit 40
 python main.py full-scrape --phase notify
-python main.py full-scrape --phase all          # local: remaining work end-to-end
+python main.py full-scrape --phase all
+python main.py full-scrape --phase list --reset-list
 ```
 
-On GitHub: **Actions → HZZ one-off full scrape → Run workflow**.
+### Environment knobs (`config.py` / env)
 
-| Input | Resume after a failure |
-|-------|------------------------|
-| `start_phase = all` | Default. List skips completed categories; details skip fetched ads. |
-| `start_phase = details` | List already saved; continue remaining detail pages. |
-| `start_phase = notify` | Details done; send Telegram / backlog only. |
-| `reset_list = true` | New occupation walk (use for a later complete re-scrape). |
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `HZZ_DB_PATH` | `data/hzz_jobs.sqlite3` | SQLite file |
+| `HZZ_MAX_CATEGORIES` | `0` (all) | Cap occupation categories (smoke uses `1`) |
+| `HZZ_MAX_LISTINGS` | `0` (all) | Cap detail fetches in collect |
+| `HZZ_SMOKE` | unset | If `1`/`true`, Telegram titles get `SMOKE TEST —` |
+| `HZZ_DETAIL_BATCH` | `40` | Default detail batch size in config (workflow input overrides in CI) |
 
-Smoke still runs first and stays silent unless it fails. Daily cron and this
-workflow share a concurrency group so they cannot clobber the SQLite file.
+Retention (not env): dated ads deleted **3 days** after `deadline_date`;
+open-ended ads deleted **90 days** after first seen / listed; then `VACUUM`.
+
+---
+
+## Jobs board
+
+Static site in `docs/` (GitHub Pages). **Matching `jobs` only** — inspected
+non-matches are not listed.
+
+**Phone:** **Filters** opens a drawer (expiry window, location, employer,
+Telegram-sent). **Desktop:** same filters stay in a left sidebar. Search and
+sort (soonest expiry / newest / score / title) are in the header. Tapping a
+card opens the HZZ detail URL.
+
+The board is empty until a successful collect writes matches. It refreshes
+when daily or full-scrape finishes and deploys Pages.
+
+## What is stored
+
+| Table / file | Role |
+|--------------|------|
+| `jobs` | Filter **matches** (Telegram + board) |
+| `inspected` | Every listed `WebSifra` (match or not) so details are not re-fetched |
+| `scrape_runs` / `scrape_categories` | Full-scrape list checkpoints |
+| `meta` | e.g. `last_successful_collect_on` |
+| `docs/jobs.json` | Public board payload (`generated_at` + jobs) |
+
+GitHub Actions runners are ephemeral, so SQLite **and** `jobs.json` are
+committed back to the repo after a successful collect.
+
+## GitHub limits
+
+Public repo + `ubuntu-latest` → Actions minutes are free. Private Free plan
+is **2,000 Linux minutes/month**. A hung job still bills until its timeout
+(smoke 10, collect 90, full scrape 180, GitHub hard cap 6 hours).
+
+The limit that grows over time is **git history of binary SQLite**, not live
+row count. Each persist is a near-full blob. Pruning shrinks today’s file,
+not old commits. Do not use macOS/Windows runners.
 
 ## Live site behaviour (verified 2026-08-21)
 
-- Session warm-up + cookie persistence reaches the occupation-browse page
-  (`Posloprimac_RadnaMjesta.aspx`).
-- County filter is radio `ctl00$MainContent$rblZupanija`; **value `4` is
-  GRAD ZAGREB** (do not confuse with **ZAGREBAČKA**, value `21`, the county
-  around the city).
-- Result grid is `#ctl00_MainContent_gwSearch` with `a.TitleLink` rows and
-  `ul.pagination` postbacks. Detail body is `#ctl00_MainContent_pnlAjaxBlock`.
-- **"Svi poslovi" is capped at 300 rows.** Occupation categories on the
-  browse page listed ~1,080 Grad Zagreb jobs, so the crawler iterates
-  `lnkKategorija` (then paginates inside each category) instead of the
-  capped dump.
-- Postback payloads must **not** include the `btnTrazilica` submit button or
-  ASP.NET treats the request as "back to search" and the grid disappears.
-
-Smoke-test a single category against the live site:
+- Session warm-up + cookies reach `Posloprimac_RadnaMjesta.aspx`.
+- County radio `ctl00$MainContent$rblZupanija` value **`4` = GRAD ZAGREB**
+  (not **ZAGREBAČKA**, value `21`).
+- Grid `#ctl00_MainContent_gwSearch`, `a.TitleLink`, pager `ul.pagination`.
+  Detail body `#ctl00_MainContent_pnlAjaxBlock`.
+- **"Svi poslovi" is capped at 300 rows.** The crawler walks `lnkKategorija`
+  (~1,080 Grad Zagreb jobs).
+- Never include `btnTrazilica` in postback payloads.
 
 ```bash
 HZZ_MAX_CATEGORIES=1 python -c "
@@ -195,98 +350,25 @@ print(len(jobs), jobs[0].title if jobs else None)
 "
 ```
 
-## Critique of the original design (summary)
+## Design notes
 
-- **Cookie handling**: a plain `requests.get()` with no session reuse hits
-  the redirect loop described above and never reaches content. Fixed via a
-  persistent `requests.Session` + explicit warm-up request.
-- **Pagination/filtering**: WebForms grids are typically driven by postback
-  (`__VIEWSTATE`/`__EVENTTARGET`), not a `?page=N` query string. A row/column
-  scrape that assumes simple query-string pagination will silently only ever
-  see page 1.
-- **Description completeness**: keyword matching against only the list page
-  will miss most true positives, since the real ad text (where "osiguran
-  smještaj" etc. actually appear) lives on the detail page only. This
-  package does a two-stage crawl for that reason.
-- **Dedup ID**: `MD5(title + employer + deadline)` breaks the moment an
-  employer edits a title or extends a deadline (both common), and can
-  collide across the gendered job-title pairs common in Croatian ads (e.g.
-  "STOLAR-ICA"). The site already assigns a stable `WebSifra` -- use it.
-- **Digest bucketing bug**: the reference code's `idx % 6` round-robin
-  interleaves urgency tiers across all six launch days instead of
-  front-loading the most urgent jobs into Day 1, risking a job being shown
-  for the first time *after* its deadline already passed. Fixed in
-  `digest.py` with sequential chunking plus a hard 48h override.
-- **State file fragility**: flat JSON has no atomicity and no useful
-  indexing at this scale. Replaced with SQLite (WAL mode).
-- **No error isolation / logging / rate limiting**: one malformed row or one
-  slow/failing detail request shouldn't kill an unattended cron job. Every
-  per-row/per-page operation here is wrapped and logged individually.
-- **Scale**: ~7,900 active national listings; Grad Zagreb is ~1,080. The
-  crawler filters županija server-side and walks occupation categories
-  (the unfiltered "Svi poslovi" grid is capped at 300 rows).
-- **Regex looseness**: `\b10000\b` will match a postal code appearing
-  *anywhere* in free text (e.g. a salary figure), not just an actual
-  location field -- lower risk once matching happens against a structured
-  location field rather than the whole blob, but worth being aware of.
-- **Alternative/supplementary source**: EURES (the EU-wide job mobility
-  portal) syndicates some HZZ postings and has an open API, but it's not a
-  substitute for this specific need -- EURES targets EU/EEA worker mobility,
-  so third-country-national-focused ads are under-represented there. Worth
-  cross-referencing, not replacing HZZ as the primary source.
+**Cookies:** a bare `requests.get()` hits a redirect loop. Persistent
+`Session` + warm-up.
 
-## Enhancements: beyond substring keyword matching
+**Pagination:** WebForms postbacks (`__VIEWSTATE` / `__EVENTTARGET`), not
+`?page=N`.
 
-Croatian is heavily inflected (7 grammatical cases + gender agreement), so a
-literal keyword list under-matches. In rough order of effort vs. payoff:
+**Scoring:** keyword weights + negation window in `config.py` /
+`scoring.py`. Detail text is required; list-page titles are not enough.
 
-1. **Curated inflected variants** (what this package does in `config.py`):
-   cheap, no new dependency, works well because the domain vocabulary is
-   narrow -- there are only a handful of core legal phrases, and their most
-   common case forms can be enumerated by hand.
-2. **Weighted scoring + a threshold** instead of a boolean `any()`, so a weak
-   signal like "terenski rad" doesn't get equal footing with an
-   unambiguous phrase like "dozvola za boravak i rad" (implemented).
-3. **Negation guard**: skip a keyword hit if a negation marker appears just
-   before it in the text, catching ads that explicitly rule out sponsorship
-   (implemented, intentionally simple -- a proximity window, not real parsing).
-4. **Fuzzy matching** (`rapidfuzz`) as a fallback when no exact/curated hit
-   is found, to catch inflected forms outside the curated list, at lower
-   confidence (implemented, optional dependency).
-5. **Full lemmatization** via a Croatian NLP pipeline (e.g. `classla`) if
-   false negatives from (1) turn out to matter in practice -- heavier
-   dependency, worth it only once you have real missed-match examples to
-   justify it.
-6. **LLM second-pass verification**: run only on the shortlist that already
-   passed the cheap keyword filter (keeps cost/latency low), prompting for
-   structured extraction (`sponsors_permit: yes/no/unclear`, `evidence
-   quote`, `confidence`). This is the most robust option for negation and
-   context ("ne nudimo radnu dozvolu" vs "nudimo radnu dozvolu") that regex
-   fundamentally can't reason about, and is cheap at this volume with a
-   small/fast model.
+**Dedup:** stable `WebSifra`, not a title hash.
 
-## Architecture recommendations
+**Backlog:** sequential urgency chunks + 48h override (`digest.py`), not
+`idx % 6`.
 
-**State storage**: SQLite (implemented) -- zero infra, atomic, indexable,
-more than sufficient for a few thousand rows. Only reach for Postgres
-(Supabase/Neon free tier) if you need multi-writer access or a hosted
-dashboard on top of this data later.
+**State:** SQLite WAL, not a JSON file. Git-commit-as-database is the
+Actions tradeoff; move off git if `.git` gets large.
 
-**Delivery**: Telegram Bot API (implemented) -- free, push-based, ideal for
-urgency-driven alerts, trivial to call via plain HTTP. Email (Resend/SES/
-SMTP) is a reasonable alternative if you want a nicer-formatted daily digest
-rather than push notifications; a Slack/Discord incoming webhook is the
-lowest-effort option if you already live in one of those.
-
-**Scheduling**: start with **GitHub Actions** (implemented,
-`.github/workflows/daily.yml`) -- free for a low-frequency personal job, no
-server to maintain, secrets managed in repo settings. The one real gotcha is
-that Actions runners are ephemeral, so the SQLite file must be committed back
-to the repo (done in the workflow) or moved to an external store. Move to
-**AWS Lambda + EventBridge** only if this grows into something needing
-sub-minute latency, VPC access, or multi-source aggregation -- for a single
-daily scrape it adds IAM/networking/state-storage complexity (Lambda has no
-persistent local disk either, so you'd still need DynamoDB/S3 for the state
-DB) without a clear benefit at this scale. A small always-on box (Fly.io/
-Railway free tier) is a reasonable middle ground if you'd rather avoid the
-git-commit-as-database pattern entirely.
+Expiry-soon Telegram alerts and weekly publish cadence
+(`NEW_MATCH_PUBLISH_CADENCE`) are reserved, not the current path.
+Collection stays daily.
