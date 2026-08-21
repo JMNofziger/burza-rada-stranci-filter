@@ -34,8 +34,7 @@ MAX_PAGES_PER_CATEGORY = 20        # safety cap; largest Grad Zagreb category is
 MAX_CATEGORIES = int(os.environ.get("HZZ_MAX_CATEGORIES") or "0")
 MAX_LISTINGS = int(os.environ.get("HZZ_MAX_LISTINGS") or "0")
 IS_SMOKE = (os.environ.get("HZZ_SMOKE") or "").strip().lower() in {"1", "true", "yes"}
-# Manual full-scrape detail batches. Smaller = more git checkpoints if a
-# GitHub Actions job dies; larger = fewer commits. ~40 ads ≈ 1–2 minutes.
+# Unused by the CLI: CI passes workflow input detail_batch_size as --limit.
 FULL_SCRAPE_DETAIL_BATCH = int(os.environ.get("HZZ_DETAIL_BATCH") or "40")
 
 # County radio on the occupation-browse page.
@@ -85,7 +84,7 @@ OPEN_ENDED_JOB_RETENTION_DAYS = 90  # ≈ 3 months
 #
 # Each entry lists the canonical (nominative/dictionary) form plus the most
 # common inflected forms we expect to see in real ad text. This is a cheap,
-# high-value substitute for full lemmatization (see README "Enhancements").
+# high-value substitute for full lemmatization (see scoring.py).
 FOREIGNER_KEYWORDS: dict[str, int] = {
     # dozvola za boravak i rad ("residence and work permit") + case variants
     "dozvola za boravak i rad": 3,

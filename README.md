@@ -39,8 +39,14 @@ python main.py telegram-check # secrets only, no scrape
 python main.py smoke          # cheap live probe, no Telegram
 ```
 
-Unattended collection is **GitHub Actions**, not a laptop cron. See workflows
-below. After the first successful collect, the board is
+Unattended collection is **GitHub Actions**, not a laptop cron. There is no
+`python main.py serve` — the board is GitHub Pages (`docs/`).
+
+One-time Pages setup: Settings → Pages → Source **GitHub Actions**. Public
+repo is recommended (free Pages; HZZ listings are already public). Telegram
+tokens stay in Actions secrets / gitignored `.env`.
+
+After Pages is enabled and a collect deploys, the board is
 `https://jmnofziger.github.io/burza-rada-stranci-filter/`.
 
 ## Secrets
@@ -87,12 +93,13 @@ the two that have a **Run workflow** button.
   SQLite file; overlapping would corrupt git history.
 - **Concurrency group `github-pages`:** Pages deploys; newer deploy can
   cancel an older one.
-- **`[skip ci]` commits:** persist steps commit SQLite / `docs/jobs.json`
-  with `[skip ci]` so Tests does not re-run. Daily/full-scrape still deploy
-  Pages **in the same run** (they do not rely on `pages.yml` for data
-  updates). If `main` moved while the job ran (another merge), persist
-  **rebases** the state commit onto origin and retries the push instead of
-  failing.
+- **Persist:** `.github/scripts/persist-state.sh` commits
+  `data/hzz_jobs.sqlite3` + `docs/jobs.json` with `[skip ci]` (Tests does
+  not re-run). Collect/scrape checkouts use `fetch-depth: 0`. If `main`
+  moved, persist **fetches, rebases** onto origin, and retries the push.
+  A checkpoint exists on GitHub only after that push succeeds. Daily and
+  full-scrape still deploy Pages **in the same run** (they do not rely on
+  `pages.yml` for data updates).
 - **Scheduled workflows** only fire from the **default branch** (`main`)
   after the file is merged.
 - **Smoke** is silent on success. Telegram only on failure (CRITICAL).
@@ -182,7 +189,7 @@ checkpoints. Daily and this workflow share `hzz-pipeline`.
 
 | Input | Type | Default | Options | Meaning |
 |-------|------|---------|---------|---------|
-| **start_phase** | choice | `all` | `all`, `list`, `details`, `notify` | Where to begin. Finished work is skipped via SQLite checkpoints. |
+| **start_phase** | choice | `all` | `all`, `list`, `details`, `notify` | Where to begin. Finished work is skipped via SQLite checkpoints **that have been pushed**. |
 | **detail_batch_size** | string (positive integer) | `40` | e.g. `20`, `40`, `80` | How many detail pages to fetch **between git commits**. Smaller = less lost work if the job dies; more commits = fatter git history. Must be an integer `> 0`. |
 | **reset_list** | boolean | `false` | `false` / `true` | Only affects **list**. `true` starts a **new** occupation-category walk and ignores leftover category checkpoints. |
 
@@ -214,15 +221,22 @@ backlog** instead of flooding Telegram with every match as “new”.
 | **Critical alert (smoke failed)** | smoke | smoke failed | 5 min | Telegram; scrape skipped |
 | **Resumable full scrape** | smoke | smoke succeeded | 180 min | phases per `start_phase`; persist SQLite + `jobs.json` after list and after **each** details batch; upload Pages artifact |
 | **Publish jobs board** | scrape | scrape succeeded | 10 min | deploy Pages |
-| **Critical alert (full scrape failed)** | scrape | scrape failed | 5 min | Telegram: re-run from `details` or `notify` |
+| **Critical alert (full scrape failed)** | scrape | scrape failed | 5 min | Telegram. Resume from the last **GitHub** checkpoint (see below) |
 
-If the scrape job dies mid-batch, at most `detail_batch_size` detail pages
-are lost. Re-run with `start_phase = details`.
+Resume from what is **on GitHub**, not from the runner. Persist commits
+after the list walk and after each details batch. If persist fails before
+the push, that checkpoint is gone.
 
-If persist **push is rejected** because `main` moved, the job rebases and
-retries. A failed persist **before that fix** dropped the un-pushed
-checkpoint — re-run `start_phase = all` (or `list`) so the occupation walk
-is recorded on `main` again.
+- List never landed on `main` → `start_phase = all` or `list`. Do **not**
+  start at `details` (there is nothing to score).
+- List is on `main`, details still pending → `details`.
+- Details done, Telegram not sent → `notify`.
+- Unsure → `python main.py full-scrape --phase status` (`suggested_phase`,
+  `list_complete`, `details_pending`).
+
+If the job dies after a successful details persist, at most
+`detail_batch_size` pages are re-fetched. If `main` moved during the run,
+persist rebases and retries instead of failing on a non-fast-forward push.
 
 ---
 
@@ -245,7 +259,7 @@ deploy Pages themselves.
 1. Repo **public** (Pages is free; listings are already public).
 2. Settings → Pages → Source **GitHub Actions**.
 3. First deploy may create the `github-pages` environment; allow it if
-   GitHub asks.
+   GitHub asks. The URL 404s until a deploy succeeds.
 
 URL: `https://jmnofziger.github.io/burza-rada-stranci-filter/`
 
@@ -253,9 +267,9 @@ URL: `https://jmnofziger.github.io/burza-rada-stranci-filter/`
 
 ## CLI reference
 
-All commands: `python main.py <mode> [options]`. Locally, `.env` is loaded
-and does not override variables already in the environment (Actions secrets
-win in CI).
+All commands: `python main.py <mode> [options]`. There is no `serve` mode.
+Locally, `.env` is loaded and does not override variables already in the
+environment (Actions secrets win in CI).
 
 | Mode | Options | What it does | Telegram | Writes DB | Writes `docs/jobs.json` |
 |------|---------|--------------|----------|-----------|-------------------------|
@@ -263,7 +277,7 @@ win in CI).
 | **daily** | — | Collect new matches; Telegram new or zero notice; next backlog day; prune; export board. Empty DB seeds backlog instead of “all new”. | yes | yes | yes (on success) |
 | **full-scrape** | `--phase`, `--limit`, `--reset-list` | See below | **notify** only | yes (list/details/notify) | yes after details batches and notify |
 | **export-web** | — | Rebuild `docs/jobs.json` from current `jobs` table | no | no | yes |
-| **smoke** | env caps | 1 category, few rows, one detail page. No digest. | no | no (unless you pointed `HZZ_DB_PATH` at prod) | no |
+| **smoke** | env caps | 1 category, few rows, one detail page. No digest. | no | no | no |
 | **telegram-check** | — | `getMe` + `getChat` | no | no | no |
 | **chat-id** | — | Print chats; ping each | ping | no | no |
 | **alert-critical** | optional `message` | Send CRITICAL Telegram | yes | no | no |
@@ -293,17 +307,19 @@ python main.py full-scrape --phase list --reset-list
 | `HZZ_MAX_CATEGORIES` | `0` (all) | Cap occupation categories (smoke uses `1`) |
 | `HZZ_MAX_LISTINGS` | `0` (all) | Cap detail fetches in collect |
 | `HZZ_SMOKE` | unset | If `1`/`true`, Telegram titles get `SMOKE TEST —` |
-| `HZZ_DETAIL_BATCH` | `40` | Default detail batch size in config (workflow input overrides in CI) |
 
-Retention (not env): dated ads deleted **3 days** after `deadline_date`;
-open-ended ads deleted **90 days** after first seen / listed; then `VACUUM`.
+Retention (constants in `config.py`, not env): dated ads deleted **3
+calendar days** after `deadline_date` (`EXPIRED_JOB_RETENTION_DAYS`);
+open-ended ads deleted **90 days** after first_seen / listed
+(`OPEN_ENDED_JOB_RETENTION_DAYS`); then `VACUUM`. Detail batch size in CI
+is the workflow input `detail_batch_size` → `--limit`, not an env var.
 
 ---
 
 ## Jobs board
 
-Static site in `docs/` (GitHub Pages). **Matching `jobs` only** — inspected
-non-matches are not listed.
+Static site in `docs/` (GitHub Pages). Not a local server — there is no
+`serve` CLI. **Matching `jobs` only** — inspected non-matches are not listed.
 
 **Phone:** **Filters** opens a drawer (expiry window, location, employer,
 Telegram-sent). **Desktop:** same filters stay in a left sidebar. Search and
@@ -323,8 +339,9 @@ when daily or full-scrape finishes and deploys Pages.
 | `meta` | e.g. `last_successful_collect_on` |
 | `docs/jobs.json` | Public board payload (`generated_at` + jobs) |
 
-GitHub Actions runners are ephemeral, so SQLite **and** `jobs.json` are
-committed back to the repo after a successful collect.
+GitHub Actions runners are ephemeral, so `data/hzz_jobs.sqlite3` **and**
+`docs/jobs.json` are committed back to the repo after a successful collect
+(until then the tree has `data/.gitkeep` and an empty `jobs.json`).
 
 ## GitHub limits
 
@@ -333,8 +350,10 @@ is **2,000 Linux minutes/month**. A hung job still bills until its timeout
 (smoke 10, collect 90, full scrape 180, GitHub hard cap 6 hours).
 
 The limit that grows over time is **git history of binary SQLite**, not live
-row count. Each persist is a near-full blob. Pruning shrinks today’s file,
-not old commits. Do not use macOS/Windows runners.
+row count. The live DB is tiny. Each persist is a near-full blob; prune
+shrinks today’s file, not old commits. Stay on git-as-SQLite until `.git` is
+painful (~1 GB); that is not a planned migration. Do not use macOS/Windows
+runners.
 
 ## Live site behaviour (verified 2026-08-21)
 
@@ -346,6 +365,7 @@ not old commits. Do not use macOS/Windows runners.
 - **"Svi poslovi" is capped at 300 rows.** The crawler walks `lnkKategorija`
   (~1,080 Grad Zagreb jobs).
 - Never include `btnTrazilica` in postback payloads.
+- **1 s delay** (`REQUEST_DELAY_SECONDS`) between sequential HTTP requests.
 
 ```bash
 HZZ_MAX_CATEGORIES=1 python -c "
@@ -373,8 +393,8 @@ print(len(jobs), jobs[0].title if jobs else None)
 **Backlog:** sequential urgency chunks + 48h override (`digest.py`), not
 `idx % 6`.
 
-**State:** SQLite WAL, not a JSON file. Git-commit-as-database is the
-Actions tradeoff; move off git if `.git` gets large.
+**State:** SQLite WAL committed to git after each successful collect. That
+is the $0 Actions design. Stay on it until repo history is painful (~1 GB).
 
 Expiry-soon Telegram alerts and weekly publish cadence
 (`NEW_MATCH_PUBLISH_CADENCE`) are reserved, not the current path.
