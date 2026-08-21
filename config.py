@@ -34,6 +34,9 @@ MAX_PAGES_PER_CATEGORY = 20        # safety cap; largest Grad Zagreb category is
 MAX_CATEGORIES = int(os.environ.get("HZZ_MAX_CATEGORIES") or "0")
 MAX_LISTINGS = int(os.environ.get("HZZ_MAX_LISTINGS") or "0")
 IS_SMOKE = (os.environ.get("HZZ_SMOKE") or "").strip().lower() in {"1", "true", "yes"}
+# Manual full-scrape detail batches. Smaller = more git checkpoints if a
+# GitHub Actions job dies; larger = fewer commits. ~40 ads ≈ 1–2 minutes.
+FULL_SCRAPE_DETAIL_BATCH = int(os.environ.get("HZZ_DETAIL_BATCH") or "40")
 
 # County radio on the occupation-browse page.
 ZUPANIJA_FIELD = "ctl00$MainContent$rblZupanija"

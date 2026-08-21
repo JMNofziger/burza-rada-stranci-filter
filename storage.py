@@ -48,6 +48,37 @@ CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS inspected (
+    web_sifra         TEXT PRIMARY KEY,
+    title             TEXT,
+    employer          TEXT,
+    location_raw      TEXT,
+    deadline_raw      TEXT,
+    detail_url        TEXT,
+    category_label    TEXT,
+    listed_at         TEXT NOT NULL,
+    detail_fetched    INTEGER NOT NULL DEFAULT 0,
+    detail_fetched_at TEXT,
+    matched           INTEGER,
+    skip_reason       TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_inspected_pending
+    ON inspected (detail_fetched, listed_at, web_sifra);
+CREATE TABLE IF NOT EXISTS scrape_runs (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    started_at           TEXT NOT NULL,
+    list_completed_at    TEXT,
+    details_completed_at TEXT,
+    notify_completed_at  TEXT
+);
+CREATE TABLE IF NOT EXISTS scrape_categories (
+    run_id        INTEGER NOT NULL,
+    event_target  TEXT NOT NULL,
+    label         TEXT,
+    completed_at  TEXT NOT NULL,
+    PRIMARY KEY (run_id, event_target),
+    FOREIGN KEY (run_id) REFERENCES scrape_runs(id)
+);
 """
 
 
@@ -62,6 +93,11 @@ class StateStore:
         self._conn.commit()
 
     def close(self) -> None:
+        try:
+            self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+            self._conn.commit()
+        except sqlite3.Error:
+            pass
         self._conn.close()
 
     def __enter__(self) -> "StateStore":
@@ -114,7 +150,8 @@ class StateStore:
                     deadline_date=excluded.deadline_date,
                     foreign_score=excluded.foreign_score,
                     location_score=excluded.location_score,
-                    matched_keywords=excluded.matched_keywords
+                    matched_keywords=excluded.matched_keywords,
+                    digest_day=COALESCE(excluded.digest_day, jobs.digest_day)
                 """,
                 (
                     listing.web_sifra,
@@ -195,3 +232,205 @@ class StateStore:
 
     def mark_collect_success(self, today: date | None = None) -> None:
         self.set_meta("last_successful_collect_on", (today or date.today()).isoformat())
+
+    def mark_full_scrape_success(self, today: date | None = None) -> None:
+        self.set_meta("last_full_scrape_on", (today or date.today()).isoformat())
+
+    def count_jobs(self) -> int:
+        cur = self._conn.execute("SELECT COUNT(*) AS n FROM jobs")
+        return int(cur.fetchone()["n"])
+
+    def count_unnotified(self) -> int:
+        cur = self._conn.execute(
+            "SELECT COUNT(*) AS n FROM jobs WHERE notified_at IS NULL"
+        )
+        return int(cur.fetchone()["n"])
+
+    def count_inspected(self) -> int:
+        cur = self._conn.execute("SELECT COUNT(*) AS n FROM inspected")
+        return int(cur.fetchone()["n"])
+
+    def count_details_fetched(self) -> int:
+        cur = self._conn.execute(
+            "SELECT COUNT(*) AS n FROM inspected WHERE detail_fetched = 1"
+        )
+        return int(cur.fetchone()["n"])
+
+    def count_pending_details(self) -> int:
+        cur = self._conn.execute(
+            "SELECT COUNT(*) AS n FROM inspected WHERE detail_fetched = 0"
+        )
+        return int(cur.fetchone()["n"])
+
+    def is_detail_fetched(self, web_sifra: str) -> bool:
+        cur = self._conn.execute(
+            "SELECT 1 FROM inspected WHERE web_sifra = ? AND detail_fetched = 1 LIMIT 1",
+            (web_sifra,),
+        )
+        return cur.fetchone() is not None
+
+    def record_listing(self, listing, category_label: str | None = None) -> None:
+        label = category_label or getattr(listing, "category_label", "") or ""
+        with self.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO inspected (
+                    web_sifra, title, employer, location_raw, deadline_raw,
+                    detail_url, category_label, listed_at, detail_fetched
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+                ON CONFLICT(web_sifra) DO UPDATE SET
+                    title=excluded.title,
+                    employer=excluded.employer,
+                    location_raw=excluded.location_raw,
+                    deadline_raw=excluded.deadline_raw,
+                    detail_url=excluded.detail_url,
+                    category_label=COALESCE(excluded.category_label, inspected.category_label)
+                """,
+                (
+                    listing.web_sifra,
+                    listing.title,
+                    listing.employer,
+                    listing.location_raw,
+                    listing.deadline_raw,
+                    listing.detail_url,
+                    label,
+                    datetime.utcnow().isoformat(timespec="seconds"),
+                ),
+            )
+
+    def mark_detail_fetched(
+        self,
+        web_sifra: str,
+        matched: bool,
+        skip_reason: str | None = None,
+    ) -> None:
+        with self.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE inspected
+                SET detail_fetched = 1,
+                    detail_fetched_at = ?,
+                    matched = ?,
+                    skip_reason = ?
+                WHERE web_sifra = ?
+                """,
+                (
+                    datetime.utcnow().isoformat(timespec="seconds"),
+                    1 if matched else 0,
+                    skip_reason,
+                    web_sifra,
+                ),
+            )
+
+    def pending_inspected(self, limit: int | None = None) -> list[sqlite3.Row]:
+        sql = """
+            SELECT * FROM inspected
+            WHERE detail_fetched = 0
+            ORDER BY listed_at, web_sifra
+        """
+        params: tuple = ()
+        if limit and limit > 0:
+            sql += " LIMIT ?"
+            params = (limit,)
+        return self._conn.execute(sql, params).fetchall()
+
+    def all_unnotified_jobs(self) -> list[sqlite3.Row]:
+        cur = self._conn.execute(
+            """
+            SELECT * FROM jobs
+            WHERE notified_at IS NULL
+            ORDER BY deadline_date IS NULL, deadline_date
+            """
+        )
+        return cur.fetchall()
+
+    def latest_scrape_run(self) -> sqlite3.Row | None:
+        cur = self._conn.execute(
+            "SELECT * FROM scrape_runs ORDER BY id DESC LIMIT 1"
+        )
+        return cur.fetchone()
+
+    def get_scrape_run(self, run_id: int) -> sqlite3.Row | None:
+        cur = self._conn.execute(
+            "SELECT * FROM scrape_runs WHERE id = ?", (run_id,)
+        )
+        return cur.fetchone()
+
+    def start_scrape_run(self) -> int:
+        with self.transaction() as conn:
+            cur = conn.execute(
+                "INSERT INTO scrape_runs (started_at) VALUES (?)",
+                (datetime.utcnow().isoformat(timespec="seconds"),),
+            )
+            return int(cur.lastrowid)
+
+    def mark_run_list_complete(self, run_id: int) -> None:
+        with self.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE scrape_runs
+                SET list_completed_at = ?
+                WHERE id = ? AND list_completed_at IS NULL
+                """,
+                (datetime.utcnow().isoformat(timespec="seconds"), run_id),
+            )
+
+    def mark_run_details_complete(self, run_id: int) -> None:
+        with self.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE scrape_runs
+                SET details_completed_at = ?
+                WHERE id = ? AND details_completed_at IS NULL
+                """,
+                (datetime.utcnow().isoformat(timespec="seconds"), run_id),
+            )
+
+    def mark_run_notify_complete(self, run_id: int) -> None:
+        with self.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE scrape_runs
+                SET notify_completed_at = ?
+                WHERE id = ? AND notify_completed_at IS NULL
+                """,
+                (datetime.utcnow().isoformat(timespec="seconds"), run_id),
+            )
+
+    def is_category_complete(self, run_id: int, event_target: str) -> bool:
+        cur = self._conn.execute(
+            """
+            SELECT 1 FROM scrape_categories
+            WHERE run_id = ? AND event_target = ?
+            LIMIT 1
+            """,
+            (run_id, event_target),
+        )
+        return cur.fetchone() is not None
+
+    def mark_category_complete(
+        self, run_id: int, event_target: str, label: str = ""
+    ) -> None:
+        with self.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO scrape_categories (run_id, event_target, label, completed_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(run_id, event_target) DO UPDATE SET
+                    label=excluded.label,
+                    completed_at=excluded.completed_at
+                """,
+                (
+                    run_id,
+                    event_target,
+                    label,
+                    datetime.utcnow().isoformat(timespec="seconds"),
+                ),
+            )
+
+    def count_completed_categories(self, run_id: int) -> int:
+        cur = self._conn.execute(
+            "SELECT COUNT(*) AS n FROM scrape_categories WHERE run_id = ?",
+            (run_id,),
+        )
+        return int(cur.fetchone()["n"])
