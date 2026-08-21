@@ -186,19 +186,44 @@ class ExportWebTests(unittest.TestCase):
 
 
 class PublicBoardStaticTests(unittest.TestCase):
-    def test_board_is_a_filter_drawer_not_a_local_server(self):
+    def setUp(self):
         root = Path(__file__).resolve().parents[1]
-        html = (root / "docs" / "index.html").read_text()
-        css = (root / "docs" / "styles.css").read_text()
-        js = (root / "docs" / "app.js").read_text()
-        self.assertIn('id="filters"', html)
-        self.assertIn("Expiring", html)
-        self.assertIn("./jobs.json", js)
-        self.assertIn(".drawer", css)
-        self.assertNotIn("tabulator", html.lower())
-        self.assertNotIn("127.0.0.1", html)
-        self.assertNotIn("TELEGRAM_BOT_TOKEN", html + js)
-        self.assertNotIn("TELEGRAM_CHAT_ID", html + js)
+        self.html = (root / "docs" / "index.html").read_text()
+        self.css = (root / "docs" / "styles.css").read_text()
+        self.js = (root / "docs" / "app.js").read_text()
+
+    def test_board_is_a_filter_drawer_not_a_local_server(self):
+        self.assertIn('id="filters"', self.html)
+        self.assertIn("Expiring", self.html)
+        self.assertIn("./jobs.json", self.js)
+        self.assertIn(".drawer", self.css)
+        self.assertNotIn("tabulator", self.html.lower())
+        self.assertNotIn("127.0.0.1", self.html)
+        self.assertNotIn("TELEGRAM_BOT_TOKEN", self.html + self.js)
+        self.assertNotIn("TELEGRAM_CHAT_ID", self.html + self.js)
+
+    def test_empty_checkbox_filters_mean_show_all(self):
+        self.assertIn("if (urgency.size && !urgency.has(job.urgency))", self.js)
+        self.assertIn("if (location.size && !location.has(job.location_label))", self.js)
+        self.assertIn("if (!on.length || on.length === boxes.length)", self.js)
+        self.assertNotIn('name="urgency" value="48h" checked', self.html)
+        self.assertNotIn('name="location" value="City centre" checked', self.html)
+
+    def test_listing_count_sits_above_results(self):
+        main = self.html.split("<main>", 1)[1].split("</main>", 1)[0]
+        self.assertLess(main.find('id="listing-count"'), main.find('id="results"'))
+        self.assertNotIn('id="row-count"', self.html)
+
+    def test_nav_has_language_and_dark_default_theme_toggle(self):
+        self.assertIn('data-theme="dark"', self.html)
+        self.assertIn('id="lang-en"', self.html)
+        self.assertIn('id="lang-hr"', self.html)
+        self.assertIn('id="theme-toggle"', self.html)
+        self.assertIn("Fraunces", self.html)
+        self.assertIn("Sora", self.html)
+        self.assertIn("--accent: #e0a14a", self.css)
+        self.assertIn("title_en", self.js)
+        self.assertIn("langpair=hr|en", self.js)
 
 
 if __name__ == "__main__":
