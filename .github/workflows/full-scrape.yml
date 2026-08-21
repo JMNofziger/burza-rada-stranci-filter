@@ -70,7 +70,8 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Send critical Telegram alert
-        run: python main.py alert-critical "Full scrape aborted: smoke probe failed."
+        run: |
+          python main.py alert-critical "Full scrape aborted: smoke probe failed."
 
   scrape:
     name: Resumable full scrape
@@ -160,4 +161,5 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Send critical Telegram alert
-        run: python main.py alert-critical "One-off full scrape failed. Re-run the workflow from the suggested phase (details or notify) to resume from the last SQLite checkpoint."
+        run: |
+          python main.py alert-critical "One-off full scrape failed. Re-run the workflow from the suggested phase (details or notify) to resume from the last SQLite checkpoint."
