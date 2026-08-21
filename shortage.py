@@ -159,7 +159,7 @@ def assert_list_not_stale(today: date | None = None) -> None:
             f"UV occupation list verifiedDate is {age} days old "
             f"(limit {config.UV_STALE_AFTER_DAYS}). Re-open "
             f"{load_uv_list().meta.get('hubUrl')} and bump verifiedDate "
-            "or re-ingest occupations. See METHOD.md."
+            "or re-ingest occupations. See product/METHOD.md."
         )
 
 
@@ -186,7 +186,7 @@ def assert_source_pdf_unchanged() -> None:
             f"  stored: {expected}\n"
             f"  live:   {actual}\n"
             "Re-transcribe data/uv-occupations.json from the new PDF, "
-            "update edition / verifiedDate / sourceSha256. See METHOD.md."
+            "update edition / verifiedDate / sourceSha256. See product/METHOD.md."
         )
 
 

@@ -47,7 +47,7 @@ PAGE_SIZE_FIELD = "ctl00$MainContent$ddlPageSize"
 DATA_DIR = Path("data")
 DB_PATH = Path(os.environ.get("HZZ_DB_PATH") or (DATA_DIR / "hzz_jobs.sqlite3"))
 # Official UV (Upravno vijeće) TTR-exemption occupation list. Separate track
-# from FOREIGNER_KEYWORDS. Refresh process: METHOD.md.
+# from FOREIGNER_KEYWORDS. Refresh process: product/METHOD.md.
 UV_LIST_PATH = DATA_DIR / "uv-occupations.json"
 UV_REGION = "grad_zagreb"
 UV_STALE_AFTER_DAYS = 90
