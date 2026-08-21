@@ -1,4 +1,23 @@
 {
-  "jobs": [],
-  "generated_at": "2026-08-21T14:31:08Z"
+  "jobs": [
+    {
+      "web_sifra": "165096069",
+      "title": "DOCENT / ICA",
+      "employer": "SVEUČILIŠTE U ZAGREBU MUZIČKA AKADEMIJA",
+      "location_raw": "ZAGREB",
+      "location_score": 1,
+      "location_label": "Zagreb",
+      "deadline_date": "2026-08-24",
+      "days_until_deadline": 3,
+      "urgency": "7d",
+      "foreign_score": 2,
+      "matched_keywords": "strani državljani",
+      "detail_url": "https://burzarada.hzz.hr/RadnoMjesto_Ispis.aspx?WebSifra=165096069&AspxAutoDetectCookieSupport=1",
+      "first_seen_at": "2026-08-21T14:31:48",
+      "digest_day": null,
+      "notified_at": null,
+      "notified": false
+    }
+  ],
+  "generated_at": "2026-08-21T14:32:02Z"
 }
