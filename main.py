@@ -2,13 +2,12 @@
 main.py
 CLI entrypoint. Two subcommands:
 
-    python -m main bootstrap   # one-time initial 6-day digest build
-    python -m main daily       # ongoing incremental daily run (cron target)
+    python main.py bootstrap   # one-time: queue existing matches into a 6-day review
+    python main.py daily       # cron target: collect new matches every day, publish them
 
 Wrapped in a top-level try/except so a cron-triggered failure logs a full
 traceback and exits non-zero (visible in GitHub Actions / cron mail) instead
-of dying silently -- the reference design had no error handling at all,
-which for an unattended daily job means failures go unnoticed indefinitely.
+of dying silently.
 """
 
 from __future__ import annotations
@@ -18,6 +17,9 @@ import logging
 import os
 import sys
 from datetime import date
+from pathlib import Path
+
+from dotenv import load_dotenv
 
 import config
 import digest
@@ -37,13 +39,21 @@ def setup_logging() -> None:
     )
 
 
+def load_local_secrets() -> None:
+    """Load `.env` from the repo root if present. Does not override existing env vars
+    (so GitHub Actions secrets win)."""
+    env_path = Path(__file__).resolve().parent / ".env"
+    load_dotenv(env_path, override=False)
+
+
 def get_telegram_creds() -> tuple[str, str]:
     token = os.environ.get(config.TELEGRAM_ENV_TOKEN)
     chat_id = os.environ.get(config.TELEGRAM_ENV_CHAT_ID)
     if not token or not chat_id:
         raise RuntimeError(
             f"Set {config.TELEGRAM_ENV_TOKEN} and {config.TELEGRAM_ENV_CHAT_ID} "
-            "as environment variables (GitHub Actions: repo secrets)."
+            "in a local `.env` file (see `.env.example`) or as environment "
+            "variables (GitHub Actions: repo secrets)."
         )
     return token, chat_id
 
@@ -69,62 +79,90 @@ def collect_and_score(session, store: StateStore, skip_seen: bool) -> list:
     return results
 
 
+def seed_backlog(listings: list, store: StateStore) -> dict[int, list]:
+    buckets = digest.build_initial_digest(listings)
+    for day, jobs in buckets.items():
+        for job in jobs:
+            store.upsert_job(job, digest_day=day)
+        log.info("Backlog day %d: %d jobs", day, len(jobs))
+    return buckets
+
+
+def should_publish_new_matches(today: date | None = None) -> bool:
+    """Collection is daily; publishing new matches can later be weekly via config."""
+    cadence = (config.NEW_MATCH_PUBLISH_CADENCE or "daily").lower()
+    if cadence == "weekly":
+        today = today or date.today()
+        return today.weekday() == config.NEW_MATCH_PUBLISH_WEEKDAY
+    return True
+
+
 def run_bootstrap() -> None:
     session = build_session()
     with StateStore() as store:
         listings = collect_and_score(session, store, skip_seen=False)
         log.info("Bootstrap: %d matching Zagreb listings found.", len(listings))
-        buckets = digest.build_initial_digest(listings)
-        for day, jobs in buckets.items():
-            for job in jobs:
-                store.upsert_job(job, digest_day=day)
-            log.info("Day %d: %d jobs", day, len(jobs))
-        # Dispatch is deliberately left to a separate "daily" invocation per
-        # day so the launch-week pacing described in the spec is honoured --
-        # bootstrap only *builds* the queue, `daily` sends whatever the
-        # current day's bucket is the first time it runs.
+        seed_backlog(listings, store)
+        # Dispatch is left to `daily` so launch-week pacing stays one bucket/day.
 
 
 def run_daily() -> None:
     session = build_session()
     token, chat_id = get_telegram_creds()
     with StateStore() as store:
+        if store.is_empty():
+            log.info("Empty state DB — seeding existing matches as backlog, not as 'new'.")
+            listings = collect_and_score(session, store, skip_seen=False)
+            log.info("Initial seed: %d matching Zagreb listings.", len(listings))
+            seed_backlog(listings, store)
+            notify.send_new_matches_report(token, chat_id, [])
+            _publish_next_backlog_day(store, token, chat_id)
+            removed = store.prune_expired()
+            if removed:
+                log.info("Pruned %d expired listings from the state DB.", removed)
+            return
+
         new_listings = collect_and_score(session, store, skip_seen=True)
-        log.info("Daily run: %d newly discovered matching listings.", len(new_listings))
+        log.info("Daily collect: %d newly discovered matching listings.", len(new_listings))
         for job in new_listings:
             store.upsert_job(job, digest_day=None)
 
-        urgent_rows = store.unnotified_expiring_within(config.URGENT_WITHIN_HOURS)
-        if urgent_rows:
-            notify.send_telegram_digest(token, chat_id, "🚨 Hitno (< 48h)", urgent_rows)
-            for row in urgent_rows:
+        if should_publish_new_matches():
+            rows = store.unnotified_new_matches()
+            if rows or config.NOTIFY_WHEN_NO_NEW_MATCHES:
+                notify.send_new_matches_report(token, chat_id, rows)
+            for row in rows:
                 store.mark_notified(row["web_sifra"])
+        else:
+            log.info(
+                "Collect-only day (NEW_MATCH_PUBLISH_CADENCE=%s); %d unpublished new matches stored.",
+                config.NEW_MATCH_PUBLISH_CADENCE,
+                len(store.unnotified_new_matches()),
+            )
 
-        # Send today's bootstrap bucket, if this is still launch week and it
-        # hasn't been sent yet.
-        today_bucket_day = _current_bootstrap_day(store)
-        if today_bucket_day:
-            rows = [
-                r for r in store.jobs_for_digest_day(today_bucket_day) if r["notified_at"] is None
-            ]
-            if rows:
-                notify.send_telegram_digest(token, chat_id, f"Day {today_bucket_day}", rows)
-                for row in rows:
-                    store.mark_notified(row["web_sifra"])
+        _publish_next_backlog_day(store, token, chat_id)
 
         removed = store.prune_expired()
         if removed:
             log.info("Pruned %d expired listings from the state DB.", removed)
 
 
+def _publish_next_backlog_day(store: StateStore, token: str, chat_id: str) -> None:
+    """Send the next unsent 6-day backlog bucket, if any remain."""
+    today_bucket_day = _current_bootstrap_day(store)
+    if not today_bucket_day:
+        return
+    rows = [r for r in store.jobs_for_digest_day(today_bucket_day) if r["notified_at"] is None]
+    if not rows:
+        return
+    notify.send_telegram_digest(
+        token, chat_id, f"Postojeći oglasi — dan {today_bucket_day}", rows
+    )
+    for row in rows:
+        store.mark_notified(row["web_sifra"])
+
+
 def _current_bootstrap_day(store: StateStore) -> int | None:
-    """
-    Minimal placeholder: figure out which of the 6 launch-week digest_day
-    buckets is 'due' today. A real deployment should persist a
-    'launch_date'/'last_dispatched_day' value (e.g. a one-row settings table)
-    rather than inferring it -- left simple here since it's orthogonal to the
-    scraping/scoring/dedup concerns this package focuses on.
-    """
     for day in range(1, config.DIGEST_DAYS + 1):
         rows = store.jobs_for_digest_day(day)
         if any(r["notified_at"] is None for r in rows):
@@ -134,6 +172,7 @@ def _current_bootstrap_day(store: StateStore) -> int | None:
 
 def main() -> None:
     setup_logging()
+    load_local_secrets()
     parser = argparse.ArgumentParser(description="HZZ Zagreb foreign-friendly job digest")
     parser.add_argument("mode", choices=["bootstrap", "daily"])
     args = parser.parse_args()

@@ -50,10 +50,16 @@ TELEGRAM_ENV_TOKEN = "TELEGRAM_BOT_TOKEN"
 TELEGRAM_ENV_CHAT_ID = "TELEGRAM_CHAT_ID"
 
 # ---------------------------------------------------------------------------
-# Digest / urgency
+# Digest / publish cadence
 # ---------------------------------------------------------------------------
+# Collection always runs on the daily cron. Publishing *new* filter matches
+# is separate so we can switch to weekly later if daily volume is too low.
+# Expiry-soon alerts are intentionally not part of this path.
 DIGEST_DAYS = 6
-URGENT_WITHIN_HOURS = 48
+NEW_MATCH_PUBLISH_CADENCE = "daily"  # "daily" | "weekly"
+NEW_MATCH_PUBLISH_WEEKDAY = 0        # Monday=0; used only when cadence is weekly
+NOTIFY_WHEN_NO_NEW_MATCHES = True
+URGENT_WITHIN_HOURS = 48             # reserved for a later expiry-soon notice
 
 # ---------------------------------------------------------------------------
 # Foreign-worker-friendliness keyword lexicon (weighted, not boolean)

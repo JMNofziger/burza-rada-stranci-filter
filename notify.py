@@ -27,12 +27,28 @@ def escape_markdown_v2(text: str) -> str:
 
 
 def format_job_line(job) -> str:
+    job = as_job_dict(job)
     title = escape_markdown_v2(job["title"])
     employer = escape_markdown_v2(job["employer"] or "N/A")
     deadline = escape_markdown_v2(job["deadline_date"] or "otvoreno")
     badge = "🏙️ Centar" if job["location_score"] == 2 else "Zagreb"
     url = job["detail_url"]
     return f"*{title}*\n{employer} · {badge} · rok: {deadline}\n[Otvori oglas]({url})"
+
+
+def as_job_dict(job) -> dict:
+    if hasattr(job, "keys") and not isinstance(job, dict):
+        job = dict(job)
+    if isinstance(job, dict):
+        return job
+    deadline = getattr(job, "deadline_date", None)
+    return {
+        "title": job.title,
+        "employer": job.employer,
+        "deadline_date": deadline.isoformat() if deadline else None,
+        "location_score": job.location_score,
+        "detail_url": job.detail_url,
+    }
 
 
 def build_digest_message(day_label: str, jobs: list) -> list[str]:
@@ -48,6 +64,22 @@ def build_digest_message(day_label: str, jobs: list) -> list[str]:
     if current:
         chunks.append(current)
     return chunks
+
+
+def build_zero_new_matches_message() -> str:
+    return (
+        "*Novi oglasi*\n\n"
+        "Danas nema novih oglasa koji zadovoljavaju filter\\."
+    )
+
+
+def send_new_matches_report(token: str, chat_id: str, jobs: list) -> None:
+    """Publish today's (or accumulated) new filter matches, or an explicit zero notice."""
+    if not jobs:
+        log.info("No new filter matches — sending zero notice.")
+        _send_with_retry(token, chat_id, build_zero_new_matches_message())
+        return
+    send_telegram_digest(token, chat_id, "Novi oglasi", jobs)
 
 
 def send_telegram_digest(token: str, chat_id: str, day_label: str, jobs: list) -> None:
