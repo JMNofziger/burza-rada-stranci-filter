@@ -309,6 +309,74 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
+const HR_LOCALE = "hr";
+const COMPANY_SUFFIX_RE = /^(j\.d\.o\.o\.?|d\.o\.o\.?|d\.d\.?)$/i;
+
+function lettersOf(text) {
+  return String(text).match(/\p{L}/gu) || [];
+}
+
+function isUpperLetter(ch) {
+  return ch === ch.toLocaleUpperCase(HR_LOCALE) && ch !== ch.toLocaleLowerCase(HR_LOCALE);
+}
+
+function isLowerLetter(ch) {
+  return ch === ch.toLocaleLowerCase(HR_LOCALE) && ch !== ch.toLocaleUpperCase(HR_LOCALE);
+}
+
+function isAllCapsField(text) {
+  const letters = lettersOf(text);
+  if (letters.length < 2) return false;
+  const upper = letters.filter(isUpperLetter).length;
+  return upper / letters.length >= 0.8;
+}
+
+function isAbbreviationToken(token) {
+  // Company suffixes stay as written: d.o.o / d.o.o. / j.d.o.o. / d.d.
+  if (COMPANY_SUFFIX_RE.test(token)) return true;
+  const letters = lettersOf(token);
+  const letterCount = letters.length;
+  // Abbreviation: 2–5 letters, all caps, no lowercase (VPR, HZZ, EU, USA)
+  if (letterCount < 2 || letterCount > 5) return false;
+  if (letters.some(isLowerLetter)) return false;
+  return letters.every(isUpperLetter);
+}
+
+function titleCaseSegment(segment) {
+  if (!segment) return segment;
+  if (isAbbreviationToken(segment)) return segment;
+  const letters = lettersOf(segment);
+  if (letters.length <= 1) return segment;
+  let seenLetter = false;
+  return [...segment]
+    .map((ch) => {
+      if (!/\p{L}/u.test(ch)) return ch;
+      if (!seenLetter) {
+        seenLetter = true;
+        return ch.toLocaleUpperCase(HR_LOCALE);
+      }
+      return ch.toLocaleLowerCase(HR_LOCALE);
+    })
+    .join("");
+}
+
+function titleCaseToken(token) {
+  return token.split("-").map(titleCaseSegment).join("-");
+}
+
+// Display-only ALL CAPS → Title Case. Does not mutate jobs.json.
+//   ZDRAVSTVENA USTANOVA → Zdravstvena Ustanova
+//   VPR EVENTS → VPR Events (VPR 3-letter acronym, EVENTS title-cased)
+//   Acme d.o.o. unchanged if not ALL CAPS
+function toDisplayCase(value) {
+  const text = String(value ?? "");
+  if (!isAllCapsField(text)) return text;
+  return text
+    .split(/(\s+)/)
+    .map((part) => (/^\s+$/.test(part) ? part : titleCaseToken(part)))
+    .join("");
+}
+
 function tipSpan(className, label, tipKey) {
   const tip = t(tipKey);
   return `<span class="${className} has-tip" data-tip="${escapeHtml(tip)}" title="${escapeHtml(tip)}">${escapeHtml(label)}</span>`;
@@ -331,7 +399,7 @@ function renderEmployers(jobs) {
   box.innerHTML = names
     .map(
       (name) =>
-        `<label><input type="checkbox" value="${escapeHtml(name)}"> ${escapeHtml(name)}</label>`
+        `<label><input type="checkbox" value="${escapeHtml(name)}"> ${escapeHtml(toDisplayCase(name))}</label>`
     )
     .join("");
 }
@@ -362,8 +430,9 @@ function render() {
       const urgencyTip = URGENCY_TIP[job.urgency] || "tipUrgencyLater";
       return `<li>
         <a class="card" href="${escapeHtml(job.detail_url)}" target="_blank" rel="noopener">
-          <h3>${escapeHtml(displayTitle(job))}</h3>
-          <p class="employer">${escapeHtml(job.employer)} · ${escapeHtml(t(locKey))}</p>
+          <h3>${escapeHtml(toDisplayCase(displayTitle(job)))}</h3>
+          <p class="employer">${escapeHtml(toDisplayCase(job.employer))}</p>
+          <div class="card-location">${escapeHtml(toDisplayCase(job.location_raw || t(locKey)))}</div>
           <p>${escapeHtml(t("expires"))} ${escapeHtml(expiry)}${escapeHtml(days)}</p>
           <div class="badges">
             ${tipSpan("badge u-" + escapeHtml(job.urgency), urgencyLabels[job.urgency] || job.urgency, urgencyTip)}
