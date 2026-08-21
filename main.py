@@ -46,14 +46,25 @@ def load_local_secrets() -> None:
     load_dotenv(env_path, override=False)
 
 
-def get_telegram_creds() -> tuple[str, str]:
+def get_telegram_token() -> str:
     token = os.environ.get(config.TELEGRAM_ENV_TOKEN)
+    if not token:
+        raise RuntimeError(
+            f"Set {config.TELEGRAM_ENV_TOKEN} in `.env` (see `.env.example`) "
+            "or as an environment variable."
+        )
+    return token
+
+
+def get_telegram_creds() -> tuple[str, str]:
+    token = get_telegram_token()
     chat_id = os.environ.get(config.TELEGRAM_ENV_CHAT_ID)
-    if not token or not chat_id:
+    if not chat_id:
         raise RuntimeError(
             f"Set {config.TELEGRAM_ENV_TOKEN} and {config.TELEGRAM_ENV_CHAT_ID} "
             "in a local `.env` file (see `.env.example`) or as environment "
-            "variables (GitHub Actions: repo secrets)."
+            "variables (GitHub Actions: repo secrets). "
+            "Run `python main.py chat-id` after messaging the bot to find your chat id."
         )
     return token, chat_id
 
@@ -156,7 +167,7 @@ def _publish_next_backlog_day(store: StateStore, token: str, chat_id: str) -> No
     if not rows:
         return
     notify.send_telegram_digest(
-        token, chat_id, f"Postojeći oglasi — dan {today_bucket_day}", rows
+        token, chat_id, f"Existing listings — day {today_bucket_day}", rows
     )
     for row in rows:
         store.mark_notified(row["web_sifra"])
@@ -170,16 +181,36 @@ def _current_bootstrap_day(store: StateStore) -> int | None:
     return None
 
 
+def run_chat_id() -> None:
+    token = get_telegram_token()
+    print(
+        "1. Open your bot in Telegram and send it any message (e.g. hi).\n"
+        "2. Re-run this command if the list below is empty.\n"
+    )
+    chats = notify.fetch_chat_ids(token)
+    if not chats:
+        print(
+            "No chats yet. Message the bot first, then run: python main.py chat-id\n"
+            "Put the numeric id into TELEGRAM_CHAT_ID in .env"
+        )
+        return
+    print("Chats that have talked to this bot:")
+    for chat in chats:
+        print(f"  TELEGRAM_CHAT_ID={chat['id']}  ({chat['type']}: {chat['title']})")
+
+
 def main() -> None:
     setup_logging()
     load_local_secrets()
     parser = argparse.ArgumentParser(description="HZZ Zagreb foreign-friendly job digest")
-    parser.add_argument("mode", choices=["bootstrap", "daily"])
+    parser.add_argument("mode", choices=["bootstrap", "daily", "chat-id"])
     args = parser.parse_args()
 
     try:
         if args.mode == "bootstrap":
             run_bootstrap()
+        elif args.mode == "chat-id":
+            run_chat_id()
         else:
             run_daily()
     except Exception:

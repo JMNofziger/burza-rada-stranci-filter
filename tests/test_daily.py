@@ -31,8 +31,8 @@ class PublishCadenceTests(unittest.TestCase):
 class NotifyTests(unittest.TestCase):
     def test_zero_notice_is_non_empty_markdown(self):
         text = notify.build_zero_new_matches_message()
-        self.assertIn("Novi oglasi", text)
-        self.assertIn("nema novih oglasa", text)
+        self.assertIn("New listings", text)
+        self.assertIn("No new listings matched the filter today", text)
 
     def test_as_job_dict_from_listing(self):
         job = JobListing(
@@ -50,7 +50,26 @@ class NotifyTests(unittest.TestCase):
         self.assertEqual(d["deadline_date"], "2026-09-21")
         line = notify.format_job_line(job)
         self.assertIn("Test", line)
-        self.assertIn("Centar", line)
+        self.assertIn("City centre", line)
+
+    def test_fetch_chat_ids_dedupes(self):
+        payload = {
+            "ok": True,
+            "result": [
+                {"message": {"chat": {"id": 111, "type": "private", "first_name": "Ada"}}},
+                {"message": {"chat": {"id": 111, "type": "private", "first_name": "Ada"}}},
+                {"channel_post": {"chat": {"id": -100222, "type": "channel", "title": "Jobs"}}},
+            ],
+        }
+        class FakeResp:
+            def raise_for_status(self):
+                return None
+            def json(self):
+                return payload
+        with patch("notify.requests.get", return_value=FakeResp()):
+            chats = notify.fetch_chat_ids("token")
+        ids = {c["id"] for c in chats}
+        self.assertEqual(ids, {111, -100222})
 
 
 class StorageNewMatchTests(unittest.TestCase):

@@ -17,6 +17,26 @@ python main.py daily       # collect new matches (cron target)
 `.env` is gitignored. GitHub Actions uses repo secrets with the same names
 instead of that file.
 
+## Telegram chat ID
+
+1. Talk to [@BotFather](https://t.me/BotFather), `/newbot`, copy the token into `TELEGRAM_BOT_TOKEN`.
+2. Open your bot in Telegram, tap **Start**, send any message (e.g. `hi`).
+3. Run:
+
+```bash
+python main.py chat-id
+```
+
+Use the printed number as `TELEGRAM_CHAT_ID` in `.env` (and as the GitHub Actions secret).
+
+A user chat id is a positive integer. A channel/group id is usually negative (often starts with `-100`). For a channel, add the bot as an admin, post a message in the channel, then re-run `chat-id`.
+
+Alternatively open this URL in a browser after messaging the bot (replace `TOKEN`):
+
+`https://api.telegram.org/botTOKEN/getUpdates`
+
+Look for `"chat":{"id": 123456789`.
+
 ## What runs when
 
 | Mode | Purpose |
