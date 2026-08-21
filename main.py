@@ -5,6 +5,7 @@ CLI entrypoint.
     python main.py bootstrap      # one-time: queue existing matches into a 6-day review
     python main.py daily          # cron target: collect new matches every day, publish them
     python main.py full-scrape    # resumable one-off complete scrape (see --phase)
+    python main.py serve          # local spreadsheet of matching jobs (127.0.0.1)
 
 Wrapped in a top-level try/except so a cron-triggered failure logs a full
 traceback and exits non-zero (visible in GitHub Actions / cron mail) instead
@@ -527,6 +528,12 @@ def run_full_scrape(phase: str, limit: int = 0, reset_list: bool = False) -> Non
     run_full_scrape_notify()
 
 
+def run_serve(port: int) -> None:
+    from web.app import DEFAULT_HOST, serve
+
+    serve(host=DEFAULT_HOST, port=port)
+
+
 def main() -> None:
     setup_logging()
     load_local_secrets()
@@ -541,6 +548,7 @@ def main() -> None:
             "smoke",
             "alert-critical",
             "full-scrape",
+            "serve",
         ],
     )
     parser.add_argument("message", nargs="?", default="", help="Alert body for alert-critical")
@@ -561,6 +569,12 @@ def main() -> None:
         action="store_true",
         help="full-scrape list: start a new occupation walk, ignoring leftover category checkpoints",
     )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8765,
+        help="serve: loopback port (default 8765)",
+    )
     args = parser.parse_args()
 
     try:
@@ -576,8 +590,12 @@ def main() -> None:
             run_alert_critical(args.message)
         elif args.mode == "full-scrape":
             run_full_scrape(args.phase, limit=args.limit, reset_list=args.reset_list)
+        elif args.mode == "serve":
+            run_serve(args.port)
         else:
             run_daily()
+    except KeyboardInterrupt:
+        sys.exit(0)
     except Exception:
         log.exception("Pipeline run failed (mode=%s)", args.mode)
         sys.exit(1)

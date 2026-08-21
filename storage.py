@@ -82,6 +82,59 @@ CREATE TABLE IF NOT EXISTS scrape_categories (
 """
 
 
+def urgency_for_days(days: int | None) -> str:
+    """Bucket a deadline into 48h / 7d / open / later / expired."""
+    if days is None:
+        return "open"
+    if days < 0:
+        return "expired"
+    if days <= 2:
+        return "48h"
+    if days <= 7:
+        return "7d"
+    return "later"
+
+
+def location_label_for(location_score: int) -> str:
+    return "City centre" if location_score == 2 else "Zagreb"
+
+
+def job_row_to_view(row, today: date | None = None) -> dict:
+    """Turn a jobs-table row into a JSON-ready dict with derived filter fields."""
+    today = today or date.today()
+    data = dict(row)
+    raw = data.get("deadline_date")
+    deadline: date | None = None
+    if isinstance(raw, date):
+        deadline = raw
+    elif raw:
+        try:
+            deadline = date.fromisoformat(str(raw)[:10])
+        except ValueError:
+            deadline = None
+    days = (deadline - today).days if deadline else None
+    loc = int(data.get("location_score") or 0)
+    notified_at = data.get("notified_at")
+    return {
+        "web_sifra": data.get("web_sifra") or "",
+        "title": data.get("title") or "",
+        "employer": data.get("employer") or "",
+        "location_raw": data.get("location_raw") or "",
+        "location_score": loc,
+        "location_label": location_label_for(loc),
+        "deadline_date": deadline.isoformat() if deadline else None,
+        "days_until_deadline": days,
+        "urgency": urgency_for_days(days),
+        "foreign_score": int(data.get("foreign_score") or 0),
+        "matched_keywords": data.get("matched_keywords") or "",
+        "detail_url": data.get("detail_url") or "",
+        "first_seen_at": data.get("first_seen_at") or "",
+        "digest_day": data.get("digest_day"),
+        "notified_at": notified_at,
+        "notified": bool(notified_at),
+    }
+
+
 class StateStore:
     def __init__(self, db_path: Path = config.DB_PATH):
         db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -239,6 +292,21 @@ class StateStore:
     def count_jobs(self) -> int:
         cur = self._conn.execute("SELECT COUNT(*) AS n FROM jobs")
         return int(cur.fetchone()["n"])
+
+    def list_jobs(self, today: date | None = None) -> list[dict]:
+        """Matching jobs (the `jobs` table) as dicts, with derived deadline fields.
+
+        Empty table → empty list. Inspected-but-unmatched rows are not included.
+        Default order: soonest deadline first, open-ended last.
+        """
+        today = today or date.today()
+        cur = self._conn.execute(
+            """
+            SELECT * FROM jobs
+            ORDER BY deadline_date IS NULL, deadline_date, web_sifra
+            """
+        )
+        return [job_row_to_view(row, today) for row in cur.fetchall()]
 
     def count_unnotified(self) -> int:
         cur = self._conn.execute(
