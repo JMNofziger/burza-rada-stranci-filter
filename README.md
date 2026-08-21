@@ -221,18 +221,23 @@ backlog** instead of flooding Telegram with every match as “new”.
 | **Critical alert (smoke failed)** | smoke | smoke failed | 5 min | Telegram; scrape skipped |
 | **Resumable full scrape** | smoke | smoke succeeded | 180 min | phases per `start_phase`; persist SQLite + `jobs.json` after list and after **each** details batch; upload Pages artifact |
 | **Publish jobs board** | scrape | scrape succeeded | 10 min | deploy Pages |
-| **Critical alert (full scrape failed)** | scrape | scrape failed | 5 min | Telegram. Resume from the last **GitHub** checkpoint (see below) |
+| **Critical alert (full scrape failed)** | scrape | scrape failed | 5 min | Telegram with the same **Resume settings** card as the job log |
 
 Resume from what is **on GitHub**, not from the runner. Persist commits
 after the list walk and after each details batch. If persist fails before
 the push, that checkpoint is gone.
 
-- List never landed on `main` → `start_phase = all` or `list`. Do **not**
-  start at `details` (there is nothing to score).
-- List is on `main`, details still pending → `details`.
-- Details done, Telegram not sent → `notify`.
-- Unsure → `python main.py full-scrape --phase status` (`suggested_phase`,
-  `list_complete`, `details_pending`).
+On failure the scrape job prints a **Resume settings** card (Actions log +
+job summary) and Telegram repeats it. Copy those three inputs into
+**Run workflow**:
+
+- List never landed on `main` → `start_phase = all`, `reset_list = false`
+- List is on `main`, details still pending → `start_phase = details`
+- Details done, Telegram not sent → `start_phase = notify`
+- Keep the same `detail_batch_size` unless you want smaller checkpoints
+
+`python main.py full-scrape --phase status --resume-help` prints the same
+card locally. JSON status is still `python main.py full-scrape --phase status`.
 
 If the job dies after a successful details persist, at most
 `detail_batch_size` pages are re-fetched. If `main` moved during the run,
@@ -275,7 +280,7 @@ environment (Actions secrets win in CI).
 |------|---------|--------------|----------|-----------|-------------------------|
 | **bootstrap** | — | Score all Zagreb matches; bucket into 6-day backlog. Does not send. | no | yes | no |
 | **daily** | — | Collect new matches; Telegram new or zero notice; next backlog day; prune; export board. Empty DB seeds backlog instead of “all new”. | yes | yes | yes (on success) |
-| **full-scrape** | `--phase`, `--limit`, `--reset-list` | See below | **notify** only | yes (list/details/notify) | yes after details batches and notify |
+| **full-scrape** | `--phase`, `--limit`, `--reset-list`, `--resume-help` | See below | **notify** only | yes (list/details/notify) | yes after details batches and notify |
 | **export-web** | — | Rebuild `docs/jobs.json` from current `jobs` table | no | no | yes |
 | **smoke** | env caps | 1 category, few rows, one detail page. No digest. | no | no | no |
 | **telegram-check** | — | `getMe` + `getChat` | no | no | no |
@@ -289,9 +294,11 @@ environment (Actions secrets win in CI).
 | `--phase` | `status` | `status`, `list`, `details`, `notify`, `all` | Same idea as the workflow `start_phase`. `status` prints JSON to stdout (logs on stderr). `all` is list → remaining details → notify (local; no git checkpoints unless you commit). |
 | `--limit` | `0` | integer | Details batch size. `0` = all remaining pending rows. Workflow passes `detail_batch_size`. |
 | `--reset-list` | off | flag | Same as workflow `reset_list: true`. |
+| `--resume-help` | off | flag | With `--phase status`, print the three workflow inputs to re-run after a failure. |
 
 ```bash
 python main.py full-scrape --phase status
+python main.py full-scrape --phase status --resume-help
 python main.py full-scrape --phase list
 python main.py full-scrape --phase details --limit 40
 python main.py full-scrape --phase notify

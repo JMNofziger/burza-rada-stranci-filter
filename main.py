@@ -399,10 +399,78 @@ def full_scrape_status_dict(store: StateStore) -> dict:
     }
 
 
-def run_full_scrape_status() -> dict:
+def _resume_batch_size(batch_size: int | str | None = None) -> str:
+    if batch_size is not None and str(batch_size).strip():
+        return str(batch_size).strip()
+    return (os.environ.get("BATCH") or "40").strip() or "40"
+
+
+def resume_workflow_inputs(status: dict, batch_size: int | str | None = None) -> dict:
+    """Map DB status to the three HZZ one-off full scrape workflow inputs."""
+    suggested = status["suggested_phase"]
+    batch = _resume_batch_size(batch_size)
+    if suggested == "done":
+        return {
+            "start_phase": None,
+            "detail_batch_size": batch,
+            "reset_list": False,
+            "why": "Nothing to resume. List, details, and notify are already complete.",
+        }
+    if suggested == "list":
+        return {
+            "start_phase": "all",
+            "detail_batch_size": batch,
+            "reset_list": False,
+            "why": "No list checkpoint in this DB. Re-run from the occupation walk.",
+        }
+    if suggested == "details":
+        return {
+            "start_phase": "details",
+            "detail_batch_size": batch,
+            "reset_list": False,
+            "why": (
+                f"List is saved. {status['details_pending']} "
+                f"detail {'page' if status['details_pending'] == 1 else 'pages'} "
+                "still pending."
+            ),
+        }
+    return {
+        "start_phase": "notify",
+        "detail_batch_size": batch,
+        "reset_list": False,
+        "why": "Details are done. Only Telegram / backlog remain.",
+    }
+
+
+def format_resume_instructions(status: dict, batch_size: int | str | None = None) -> str:
+    """Plain-language card for Actions → Run workflow."""
+    inputs = resume_workflow_inputs(status, batch_size=batch_size)
+    if inputs["start_phase"] is None:
+        return (
+            "=== Resume settings ===\n"
+            f"{inputs['why']}\n"
+        )
+    reset = "false" if not inputs["reset_list"] else "true"
+    return (
+        "=== Resume settings ===\n"
+        "Actions → HZZ one-off full scrape → Run workflow\n"
+        "\n"
+        "Select these inputs:\n"
+        f"  start_phase:        {inputs['start_phase']}\n"
+        f"  detail_batch_size:  {inputs['detail_batch_size']}\n"
+        f"  reset_list:         {reset}\n"
+        "\n"
+        f"Why: {inputs['why']}\n"
+    )
+
+
+def run_full_scrape_status(resume_help: bool = False) -> dict:
     with StateStore() as store:
         status = full_scrape_status_dict(store)
-    print(json.dumps(status, sort_keys=True))
+    if resume_help:
+        print(format_resume_instructions(status), end="")
+    else:
+        print(json.dumps(status, sort_keys=True))
     return status
 
 
@@ -513,9 +581,14 @@ def run_full_scrape_notify() -> None:
         log.info("Notify phase complete.")
 
 
-def run_full_scrape(phase: str, limit: int = 0, reset_list: bool = False) -> None:
+def run_full_scrape(
+    phase: str,
+    limit: int = 0,
+    reset_list: bool = False,
+    resume_help: bool = False,
+) -> None:
     if phase == "status":
-        run_full_scrape_status()
+        run_full_scrape_status(resume_help=resume_help)
         return
     if phase == "list":
         run_full_scrape_list(reset_list=reset_list)
@@ -586,6 +659,11 @@ def main() -> None:
         action="store_true",
         help="full-scrape list: start a new occupation walk, ignoring leftover category checkpoints",
     )
+    parser.add_argument(
+        "--resume-help",
+        action="store_true",
+        help="full-scrape status: print the workflow_dispatch inputs to resume",
+    )
     args = parser.parse_args()
 
     try:
@@ -600,7 +678,12 @@ def main() -> None:
         elif args.mode == "alert-critical":
             run_alert_critical(args.message)
         elif args.mode == "full-scrape":
-            run_full_scrape(args.phase, limit=args.limit, reset_list=args.reset_list)
+            run_full_scrape(
+                args.phase,
+                limit=args.limit,
+                reset_list=args.reset_list,
+                resume_help=args.resume_help,
+            )
         elif args.mode == "export-web":
             run_export_web()
         else:

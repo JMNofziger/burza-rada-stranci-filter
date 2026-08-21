@@ -97,9 +97,18 @@ jobs:
         run: |
           set -euo pipefail
 
+          RESUME=/tmp/hzz-resume.txt
+
+          write_resume() {
+            python main.py full-scrape --phase status --resume-help | tee "$RESUME"
+          }
+
           persist_db() {
             bash .github/scripts/persist-state.sh "$1"
+            write_resume
           }
+
+          write_resume
 
           PHASE="${START_PHASE:-all}"
           BATCH="${BATCH:-40}"
@@ -137,6 +146,27 @@ jobs:
           fi
 
           python main.py full-scrape --phase status
+          write_resume
+      - name: How to resume
+        if: failure()
+        env:
+          BATCH: ${{ github.event.inputs.detail_batch_size }}
+        run: |
+          set -euo pipefail
+          if [ ! -f /tmp/hzz-resume.txt ]; then
+            python main.py full-scrape --phase status --resume-help > /tmp/hzz-resume.txt
+          fi
+          echo "::error::Re-run HZZ one-off full scrape with the inputs below."
+          cat /tmp/hzz-resume.txt
+          {
+            echo "## How to resume"
+            echo
+            echo "Actions → **HZZ one-off full scrape** → Run workflow. Select:"
+            echo
+            echo '```'
+            cat /tmp/hzz-resume.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload Pages artifact
@@ -171,5 +201,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Send critical Telegram alert
+        env:
+          BATCH: ${{ github.event.inputs.detail_batch_size }}
         run: |
-          python main.py alert-critical "One-off full scrape failed. Resume from the last GitHub checkpoint: all or list if list never persisted; otherwise details or notify."
+          set -euo pipefail
+          python main.py full-scrape --phase status --resume-help | tee /tmp/hzz-resume.txt
+          python main.py alert-critical "$(printf '%s\n\n%s' 'One-off full scrape failed.' "$(cat /tmp/hzz-resume.txt)")"
