@@ -19,15 +19,19 @@ instead of that file.
 
 ## Telegram chat ID
 
+The bot is **send-only**. It will not reply when you type in the chat. Silence
+after Start is normal.
+
 1. Talk to [@BotFather](https://t.me/BotFather), `/newbot`, copy the token into `TELEGRAM_BOT_TOKEN`.
-2. Open your bot in Telegram, tap **Start**, send any message (e.g. `hi`).
+2. Open **your** bot (not BotFather), tap **Start**, send `hi`.
 3. Run:
 
 ```bash
 python main.py chat-id
 ```
 
-Use the printed number as `TELEGRAM_CHAT_ID` in `.env` (and as the GitHub Actions secret).
+That prints `TELEGRAM_CHAT_ID=…` and sends one confirmation message so you
+know it works. Paste the id into `.env` and into the GitHub Actions secret.
 
 A user chat id is a positive integer. A channel/group id is usually negative (often starts with `-100`). For a channel, add the bot as an admin, post a message in the channel, then re-run `chat-id`.
 

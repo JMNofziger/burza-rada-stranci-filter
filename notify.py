@@ -91,14 +91,21 @@ def send_telegram_digest(token: str, chat_id: str, day_label: str, jobs: list) -
         _send_with_retry(token, chat_id, chunk)
 
 
-def _send_with_retry(token: str, chat_id: str, text: str, max_attempts: int = 3) -> None:
+def _send_with_retry(
+    token: str,
+    chat_id: str,
+    text: str,
+    max_attempts: int = 3,
+    parse_mode: str | None = "MarkdownV2",
+) -> None:
     url = TELEGRAM_API.format(token=token)
     payload = {
         "chat_id": chat_id,
         "text": text,
-        "parse_mode": "MarkdownV2",
         "disable_web_page_preview": True,
     }
+    if parse_mode:
+        payload["parse_mode"] = parse_mode
     for attempt in range(1, max_attempts + 1):
         resp = requests.post(url, json=payload, timeout=20)
         if resp.status_code == 200:
@@ -113,8 +120,31 @@ def _send_with_retry(token: str, chat_id: str, text: str, max_attempts: int = 3)
     raise RuntimeError(f"Telegram send failed after {max_attempts} attempts")
 
 
+def send_connection_ping(token: str, chat_id: str) -> None:
+    """One-shot confirmation. This bot does not otherwise reply to chat."""
+    _send_with_retry(
+        token,
+        chat_id,
+        "Connected. This bot does not reply to chat messages.\n"
+        "You will receive the daily job digest here.\n"
+        f"Chat ID: {chat_id}",
+        parse_mode=None,
+    )
+
+
+def _chat_from_update(update: dict) -> dict | None:
+    for key in ("message", "edited_message", "channel_post", "my_chat_member"):
+        chat = (update.get(key) or {}).get("chat") or {}
+        if chat.get("id") is not None:
+            return chat
+    callback_chat = ((update.get("callback_query") or {}).get("message") or {}).get("chat") or {}
+    if callback_chat.get("id") is not None:
+        return callback_chat
+    return None
+
+
 def fetch_chat_ids(token: str) -> list[dict]:
-    """Return unique chats that have already messaged this bot."""
+    """Return unique chats that have already messaged or started this bot."""
     resp = requests.get(TELEGRAM_UPDATES_API.format(token=token), timeout=20)
     resp.raise_for_status()
     payload = resp.json()
@@ -122,11 +152,10 @@ def fetch_chat_ids(token: str) -> list[dict]:
         raise RuntimeError(f"Telegram getUpdates failed: {payload}")
     chats: dict[str, dict] = {}
     for update in payload.get("result") or []:
-        message = update.get("message") or update.get("channel_post") or {}
-        chat = message.get("chat") or {}
-        chat_id = chat.get("id")
-        if chat_id is None:
+        chat = _chat_from_update(update)
+        if not chat:
             continue
+        chat_id = chat["id"]
         chats[str(chat_id)] = {
             "id": chat_id,
             "type": chat.get("type") or "unknown",

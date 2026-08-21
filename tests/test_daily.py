@@ -71,6 +71,22 @@ class NotifyTests(unittest.TestCase):
         ids = {c["id"] for c in chats}
         self.assertEqual(ids, {111, -100222})
 
+    def test_fetch_chat_ids_from_start_membership(self):
+        payload = {
+            "ok": True,
+            "result": [
+                {"my_chat_member": {"chat": {"id": 999, "type": "private", "first_name": "Ada"}}},
+            ],
+        }
+        class FakeResp:
+            def raise_for_status(self):
+                return None
+            def json(self):
+                return payload
+        with patch("notify.requests.get", return_value=FakeResp()):
+            chats = notify.fetch_chat_ids("token")
+        self.assertEqual(chats[0]["id"], 999)
+
 
 class StorageNewMatchTests(unittest.TestCase):
     def setUp(self):
