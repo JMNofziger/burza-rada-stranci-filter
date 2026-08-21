@@ -190,3 +190,14 @@ def _telegram_get(token: str, method: str, params: dict | None = None) -> dict:
         description = payload.get("description") or payload
         raise RuntimeError(f"Telegram {method} failed: {description}")
     return payload.get("result") or {}
+
+
+def send_critical_alert(token: str, chat_id: str, body: str) -> None:
+    """Plain-text critical alert. Used when smoke/full collect fails."""
+    text = (
+        "CRITICAL: HZZ job digest\n\n"
+        f"{body}\n\n"
+        "The full scrape was not run (or did not finish). "
+        "Unseen listings will be picked up on the next successful collect."
+    )
+    _send_with_retry(token, chat_id, text, parse_mode=None)

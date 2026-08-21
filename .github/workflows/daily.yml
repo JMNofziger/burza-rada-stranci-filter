@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       run_size:
-        description: "smoke = 1 category, max 20 ads, isolated DB (~few min). full = all Grad Zagreb."
+        description: "smoke = health probe + tiny digest. full = health probe then all Grad Zagreb."
         type: choice
         options:
           - smoke
@@ -26,41 +26,61 @@ concurrency:
   group: hzz-daily
   cancel-in-progress: false
 
+env:
+  TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+  TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
 jobs:
-  run-digest:
+  smoke:
+    name: Smoke scrape
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Check Telegram secrets
+        run: python main.py telegram-check
+      - name: Live smoke scrape
+        env:
+          HZZ_MAX_CATEGORIES: "1"
+          HZZ_MAX_LISTINGS: "5"
+        run: python main.py smoke
+
+  alert-smoke:
+    name: Critical alert (smoke failed)
+    needs: smoke
+    if: failure()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Send critical Telegram alert
+        run: python main.py alert-critical "Smoke scrape failed. Full Grad Zagreb collect was skipped."
+
+  collect:
+    name: Full collect
+    needs: smoke
+    if: ${{ success() && (github.event_name == 'schedule' || github.event.inputs.run_size != 'smoke') }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
       - name: Install dependencies
         run: pip install -r requirements.txt
-
-      - name: Check Telegram secrets
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python main.py telegram-check
-
       - name: Run daily pipeline
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          HZZ_SMOKE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.run_size == 'smoke' && '1' || '0' }}
-          HZZ_MAX_CATEGORIES: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.run_size == 'smoke' && '1' || '0' }}
-          HZZ_MAX_LISTINGS: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.run_size == 'smoke' && '20' || '0' }}
-          HZZ_DB_PATH: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.run_size == 'smoke' && 'data/hzz_jobs.smoke.sqlite3' || 'data/hzz_jobs.sqlite3' }}
         run: python main.py daily
-
-      # GitHub Actions runners are ephemeral -- data/hzz_jobs.sqlite3 would
-      # otherwise vanish between runs. Commit the updated state DB back to
-      # the repo so dedup history survives across scheduled runs. Swap this
-      # for an external store (S3, Supabase/Postgres, a private Gist) if you
-      # don't want the DB living in git history.
       - name: Persist state DB
         run: |
           git config user.name "hzz-digest-bot"
@@ -72,3 +92,40 @@ jobs:
           else
             echo "No state DB produced; skipping persist step."
           fi
+
+  collect-smoke:
+    name: Smoke digest (manual)
+    needs: smoke
+    if: ${{ success() && github.event_name == 'workflow_dispatch' && github.event.inputs.run_size == 'smoke' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run smoke digest
+        env:
+          HZZ_SMOKE: "1"
+          HZZ_MAX_CATEGORIES: "1"
+          HZZ_MAX_LISTINGS: "20"
+          HZZ_DB_PATH: data/hzz_jobs.smoke.sqlite3
+        run: python main.py daily
+
+  alert-collect:
+    name: Critical alert (full collect failed)
+    needs: collect
+    if: failure()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Send critical Telegram alert
+        run: python main.py alert-critical "Full daily collect failed after smoke passed. Unseen listings will catch up on the next successful run."
