@@ -12,6 +12,8 @@ import logging
 import re
 import time
 
+from typing import Callable
+
 import requests
 
 log = logging.getLogger(__name__)
@@ -27,14 +29,34 @@ def escape_markdown_v2(text: str) -> str:
     return re.sub(f"([{re.escape(_MD_ESCAPE_CHARS)}])", r"\\\1", text or "")
 
 
-def format_job_line(job) -> str:
+def _employer_line(original: str, translated: str | None) -> str:
+    base = original or "N/A"
+    if translated and translated.casefold() != base.casefold():
+        return f"{base} ({translated})"
+    return base
+
+
+def format_job_line(job, translate: Callable[[str], str | None] | None = None) -> str:
+    """One listing block. Title is English when translation is available.
+
+    Employer is the original name, plus an English rendering in parentheses
+    when that rendering differs from the original.
+    """
     job = as_job_dict(job)
-    title = escape_markdown_v2(job["title"])
-    employer = escape_markdown_v2(job["employer"] or "N/A")
+    title = job["title"] or ""
+    employer = job["employer"] or ""
+    title_en = title
+    employer_en = None
+    if translate:
+        title_en = translate(title) or title
+        if employer:
+            employer_en = translate(employer)
+    title_md = escape_markdown_v2(title_en)
+    employer_md = escape_markdown_v2(_employer_line(employer, employer_en))
     deadline = escape_markdown_v2(job["deadline_date"] or "open")
     badge = "City centre" if job["location_score"] == 2 else "Zagreb"
     url = job["detail_url"]
-    return f"*{title}*\n{employer} · {badge} · deadline: {deadline}\n[Open listing]({url})"
+    return f"*{title_md}*\n{employer_md} · {badge} · deadline: {deadline}\n[Open listing]({url})"
 
 
 def as_job_dict(job) -> dict:
@@ -52,12 +74,16 @@ def as_job_dict(job) -> dict:
     }
 
 
-def build_digest_message(day_label: str, jobs: list) -> list[str]:
+def build_digest_message(
+    day_label: str,
+    jobs: list,
+    translate: Callable[[str], str | None] | None = None,
+) -> list[str]:
     """Return one or more message chunks (Telegram has a per-message length cap)."""
     header = f"*{escape_markdown_v2(day_label)}* — {len(jobs)} listings\n\n"
     chunks, current = [], header
     for job in jobs:
-        line = format_job_line(job) + "\n\n"
+        line = format_job_line(job, translate=translate) + "\n\n"
         if len(current) + len(line) > MAX_MESSAGE_CHARS:
             chunks.append(current)
             current = ""
@@ -75,21 +101,26 @@ def build_zero_new_matches_message(title: str = "New listings") -> str:
 
 
 def send_new_matches_report(
-    token: str, chat_id: str, jobs: list, title: str = "New listings"
+    token: str, chat_id: str, jobs: list, title: str = "New listings", store=None
 ) -> None:
     """Publish today's (or accumulated) new filter matches, or an explicit zero notice."""
     if not jobs:
         log.info("No new filter matches — sending zero notice.")
         _send_with_retry(token, chat_id, build_zero_new_matches_message(title))
         return
-    send_telegram_digest(token, chat_id, title, jobs)
+    send_telegram_digest(token, chat_id, title, jobs, store=store)
 
 
-def send_telegram_digest(token: str, chat_id: str, day_label: str, jobs: list) -> None:
+def send_telegram_digest(
+    token: str, chat_id: str, day_label: str, jobs: list, store=None
+) -> None:
     if not jobs:
         log.info("No jobs for %s -- skipping send.", day_label)
         return
-    for chunk in build_digest_message(day_label, jobs):
+    from translate import Translator
+
+    translate = Translator(store=store).hr_en
+    for chunk in build_digest_message(day_label, jobs, translate=translate):
         _send_with_retry(token, chat_id, chunk)
 
 

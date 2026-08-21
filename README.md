@@ -3,7 +3,9 @@
 Personal pipeline that scrapes [Burza rada (HZZ)](https://burzarada.hzz.hr)
 for **GRAD ZAGREB** listings that look open to third-country nationals, then:
 
-1. Sends **English Telegram** digests (new matches only after the first fill).
+1. Sends **English Telegram** digests (new matches only after the first fill):
+   job titles are translated HR→EN; employer is the original name plus an
+   English translation in parentheses when it differs.
 2. Publishes a **phone-friendly jobs board** on GitHub Pages, updated after
    each successful collect.
 
@@ -347,6 +349,7 @@ changes merge and `pages.yml` runs.
 | Table / file | Role |
 |--------------|------|
 | `jobs` | Filter **matches** (Telegram + board) |
+| `translations` | Cached HR→EN strings for Telegram (MyMemory) |
 | `inspected` | Every listed `WebSifra` (match or not) so details are not re-fetched |
 | `scrape_runs` / `scrape_categories` | Full-scrape list checkpoints |
 | `meta` | e.g. `last_successful_collect_on` |
@@ -402,6 +405,10 @@ print(len(jobs), jobs[0].title if jobs else None)
 
 **Scoring:** keyword weights + negation window in `config.py` /
 `scoring.py`. Detail text is required; list-page titles are not enough.
+
+**Telegram copy:** titles HR→EN via MyMemory (same endpoint as the board).
+Employer stays original, with English in parentheses when it differs.
+Cached in SQLite `translations`. Digest still sends if translation fails.
 
 **Dedup:** stable `WebSifra`, not a title hash.
 
