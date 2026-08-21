@@ -18,8 +18,10 @@ build/
 !.env.example
 
 # Pipeline data / runtime
-data/
-*.sqlite3
+# Ignore everything under data/ except the tracked state DB used by GitHub Actions.
+data/*
+!data/.gitkeep
+!data/hzz_jobs.sqlite3
 *.sqlite3-*
 
 # OS / editor
