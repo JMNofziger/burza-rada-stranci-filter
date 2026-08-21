@@ -1,0 +1,10 @@
+requests>=2.32
+beautifulsoup4>=4.12
+lxml>=5.2
+rapidfuzz>=3.9        # optional: fuzzy keyword fallback, safe to omit
+python-dateutil>=2.9
+
+# Optional, heavier NLP upgrade path (see README "Enhancements") -- not
+# required by the code in this package, only if you build out full
+# lemmatization instead of the curated-keyword-variant approach:
+# classla>=2.1

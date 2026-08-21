@@ -1,0 +1,41 @@
+name: HZZ Zagreb daily digest
+
+on:
+  schedule:
+    # GitHub Actions cron is UTC. 06:00 UTC ≈ 08:00 CEST (summer) / 07:00 CET
+    # (winter) -- adjust across the DST boundary if exact local time matters,
+    # or compute the offset at runtime instead of relying on a fixed cron.
+    - cron: "0 6 * * *"
+  workflow_dispatch: {}   # allow manual trigger from the Actions tab
+
+jobs:
+  run-digest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run daily pipeline
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python main.py daily
+
+      # GitHub Actions runners are ephemeral -- data/hzz_jobs.sqlite3 would
+      # otherwise vanish between runs. Commit the updated state DB back to
+      # the repo so dedup history survives across scheduled runs. Swap this
+      # for an external store (S3, Supabase/Postgres, a private Gist) if you
+      # don't want the DB living in git history.
+      - name: Persist state DB
+        run: |
+          git config user.name "hzz-digest-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/hzz_jobs.sqlite3
+          git diff --cached --quiet || git commit -m "chore: update job state DB [skip ci]"
+          git push
