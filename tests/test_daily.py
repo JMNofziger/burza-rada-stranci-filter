@@ -188,6 +188,45 @@ class StorageNewMatchTests(unittest.TestCase):
         }
         self.assertEqual(remaining_inspected, {"inspected-keep"})
 
+    def test_prune_drops_open_ended_after_three_months(self):
+        today = date(2026, 8, 21)
+        keep = self._listing("open-new")
+        keep.deadline_date = None
+        drop = self._listing("open-old")
+        drop.deadline_date = None
+        self.store.upsert_job(keep)
+        self.store.upsert_job(drop)
+        self.store._conn.execute(
+            "UPDATE jobs SET first_seen_at = ? WHERE web_sifra = ?",
+            ("2026-05-23T00:00:00", "open-old"),  # 90 days before today
+        )
+        self.store._conn.commit()
+
+        keep_listed = self._listing("insp-open-new")
+        keep_listed.deadline_raw = ""
+        drop_listed = self._listing("insp-open-old")
+        drop_listed.deadline_raw = ""
+        self.store.record_listing(keep_listed)
+        self.store.record_listing(drop_listed)
+        self.store._conn.execute(
+            "UPDATE inspected SET listed_at = ? WHERE web_sifra = ?",
+            ("2026-05-23T00:00:00", "insp-open-old"),
+        )
+        self.store._conn.commit()
+
+        removed = self.store.prune_expired(before=today)
+        self.assertEqual(removed, 2)
+        jobs = {
+            row["web_sifra"]
+            for row in self.store._conn.execute("SELECT web_sifra FROM jobs")
+        }
+        self.assertEqual(jobs, {"open-new"})
+        inspected = {
+            row["web_sifra"]
+            for row in self.store._conn.execute("SELECT web_sifra FROM inspected")
+        }
+        self.assertEqual(inspected, {"insp-open-new"})
+
 
 if __name__ == "__main__":
     unittest.main()

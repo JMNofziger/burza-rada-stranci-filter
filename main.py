@@ -136,9 +136,10 @@ def _finish_successful_collect(store: StateStore) -> None:
     removed = store.prune_expired()
     if removed:
         log.info(
-            "Pruned %d expired rows (jobs + inspected) after %d-day retention.",
+            "Pruned %d stale rows (jobs + inspected; %d-day dated / %d-day open-ended).",
             removed,
             config.EXPIRED_JOB_RETENTION_DAYS,
+            config.OPEN_ENDED_JOB_RETENTION_DAYS,
         )
 
 
