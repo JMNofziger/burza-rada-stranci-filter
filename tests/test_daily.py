@@ -87,6 +87,19 @@ class NotifyTests(unittest.TestCase):
             chats = notify.fetch_chat_ids("token")
         self.assertEqual(chats[0]["id"], 999)
 
+    def test_verify_telegram_connection(self):
+        def fake_get(url, params=None, timeout=20):
+            class FakeResp:
+                def json(self):
+                    if url.endswith("getMe"):
+                        return {"ok": True, "result": {"id": 1, "username": "jobs_bot"}}
+                    return {"ok": True, "result": {"id": 111, "type": "private", "first_name": "Ada"}}
+            return FakeResp()
+        with patch("notify.requests.get", side_effect=fake_get):
+            info = notify.verify_telegram_connection("tok", "111")
+        self.assertEqual(info["bot_username"], "jobs_bot")
+        self.assertEqual(info["chat_id"], 111)
+
 
 class StorageNewMatchTests(unittest.TestCase):
     def setUp(self):

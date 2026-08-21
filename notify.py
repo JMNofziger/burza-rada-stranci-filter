@@ -162,3 +162,29 @@ def fetch_chat_ids(token: str) -> list[dict]:
             "title": chat.get("title") or chat.get("username") or chat.get("first_name") or "",
         }
     return list(chats.values())
+
+
+def verify_telegram_connection(token: str, chat_id: str) -> dict:
+    """Lightweight check: token is valid and chat_id is reachable. Does not send a message."""
+    me = _telegram_get(token, "getMe")
+    chat = _telegram_get(token, "getChat", {"chat_id": chat_id})
+    return {
+        "bot_username": me.get("username") or "",
+        "bot_id": me.get("id"),
+        "chat_id": chat.get("id"),
+        "chat_type": chat.get("type") or "unknown",
+        "chat_name": chat.get("title") or chat.get("username") or chat.get("first_name") or "",
+    }
+
+
+def _telegram_get(token: str, method: str, params: dict | None = None) -> dict:
+    url = f"https://api.telegram.org/bot{token}/{method}"
+    resp = requests.get(url, params=params or {}, timeout=20)
+    try:
+        payload = resp.json()
+    except ValueError as exc:
+        raise RuntimeError(f"Telegram {method} returned non-JSON ({resp.status_code})") from exc
+    if not payload.get("ok"):
+        description = payload.get("description") or payload
+        raise RuntimeError(f"Telegram {method} failed: {description}")
+    return payload.get("result") or {}

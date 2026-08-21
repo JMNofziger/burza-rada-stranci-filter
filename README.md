@@ -33,6 +33,15 @@ python main.py chat-id
 That prints `TELEGRAM_CHAT_ID=…` and sends one confirmation message so you
 know it works. Paste the id into `.env` and into the GitHub Actions secret.
 
+To confirm GitHub Actions secrets without scraping HZZ:
+
+```bash
+python main.py telegram-check   # local .env, or CI injects repo secrets
+```
+
+That calls Telegram `getMe` + `getChat` only — no digest, no chat message.
+CI runs the same check on every push/PR and before the daily scrape.
+
 A user chat id is a positive integer. A channel/group id is usually negative (often starts with `-100`). For a channel, add the bot as an admin, post a message in the channel, then re-run `chat-id`.
 
 Alternatively open this URL in a browser after messaging the bot (replace `TOKEN`):

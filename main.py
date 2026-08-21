@@ -207,11 +207,28 @@ def run_chat_id() -> None:
             log.exception("Could not ping chat %s", chat["id"])
 
 
+def run_telegram_check() -> None:
+    token = get_telegram_token()
+    chat_id = os.environ.get(config.TELEGRAM_ENV_CHAT_ID)
+    if not chat_id:
+        raise RuntimeError(
+            "TELEGRAM_CHAT_ID is missing. Add it as a GitHub Actions secret "
+            "or in `.env`, then re-run."
+        )
+    info = notify.verify_telegram_connection(token, chat_id)
+    print(
+        "Telegram secrets are valid.\n"
+        f"  bot: @{info['bot_username']} (id {info['bot_id']})\n"
+        f"  chat: {info['chat_id']} ({info['chat_type']}: {info['chat_name']})\n"
+        "No message was sent."
+    )
+
+
 def main() -> None:
     setup_logging()
     load_local_secrets()
     parser = argparse.ArgumentParser(description="HZZ Zagreb foreign-friendly job digest")
-    parser.add_argument("mode", choices=["bootstrap", "daily", "chat-id"])
+    parser.add_argument("mode", choices=["bootstrap", "daily", "chat-id", "telegram-check"])
     args = parser.parse_args()
 
     try:
@@ -219,6 +236,8 @@ def main() -> None:
             run_bootstrap()
         elif args.mode == "chat-id":
             run_chat_id()
+        elif args.mode == "telegram-check":
+            run_telegram_check()
         else:
             run_daily()
     except Exception:
