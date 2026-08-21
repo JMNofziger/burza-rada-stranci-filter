@@ -175,7 +175,8 @@ class DetailsBatchTests(unittest.TestCase):
         with patch("main.StateStore", lambda: StateStore(self.db)):
             with patch("main.build_session", return_value=None):
                 with patch("main.fetch_detail", side_effect=fake_fetch):
-                    n = run_full_scrape_details(limit=2)
+                    with patch("main.write_jobs_json"):
+                        n = run_full_scrape_details(limit=2)
         self.assertEqual(n, 2)
         store = StateStore(self.db)
         try:
@@ -190,7 +191,8 @@ class DetailsBatchTests(unittest.TestCase):
         with patch("main.StateStore", lambda: StateStore(self.db)):
             with patch("main.build_session", return_value=None):
                 with patch("main.fetch_detail", return_value=None):
-                    n = run_full_scrape_details(limit=1)
+                    with patch("main.write_jobs_json"):
+                        n = run_full_scrape_details(limit=1)
         self.assertEqual(n, 0)
         store = StateStore(self.db)
         try:
@@ -227,7 +229,8 @@ class FirstFillNotifyTests(unittest.TestCase):
             with patch("main.get_telegram_creds", return_value=("tok", "111")):
                 with patch("main.notify.send_new_matches_report", side_effect=fake_new):
                     with patch("main.notify.send_telegram_digest", side_effect=fake_digest):
-                        run_full_scrape_notify()
+                        with patch("main.write_jobs_json"):
+                            run_full_scrape_notify()
 
         store = StateStore(self.db)
         try:

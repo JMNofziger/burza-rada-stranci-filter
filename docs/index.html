@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Zagreb foreign-friendly jobs</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-row">
+      <h1>Matching jobs</h1>
+      <button type="button" id="filter-open" class="btn btn-primary" aria-controls="filters" aria-expanded="false">
+        Filters
+      </button>
+    </div>
+    <p class="meta">Updated <span id="generated">—</span> · <span id="row-count">0 listings</span></p>
+    <div class="topbar-row">
+      <input id="search" type="search" placeholder="Search title, employer, keywords" autocomplete="off">
+      <label class="sort-label">
+        Sort
+        <select id="sort">
+          <option value="deadline">Expiry (soonest)</option>
+          <option value="newest">Newest seen</option>
+          <option value="score">Foreign score</option>
+          <option value="title">Title A–Z</option>
+        </select>
+      </label>
+    </div>
+  </header>
+
+  <div id="backdrop" class="backdrop" hidden></div>
+  <aside id="filters" class="drawer" aria-label="Filters">
+    <div class="drawer-head">
+      <h2>Filters</h2>
+      <button type="button" id="filter-close" class="btn">Done</button>
+    </div>
+    <form id="filter-form">
+      <fieldset>
+        <legend>Expiring</legend>
+        <label><input type="checkbox" name="urgency" value="48h" checked> Within 48 hours</label>
+        <label><input type="checkbox" name="urgency" value="7d" checked> Within 7 days</label>
+        <label><input type="checkbox" name="urgency" value="later" checked> Later</label>
+        <label><input type="checkbox" name="urgency" value="open" checked> Open-ended</label>
+        <label><input type="checkbox" name="urgency" value="expired"> Expired</label>
+      </fieldset>
+      <fieldset>
+        <legend>Location</legend>
+        <label><input type="checkbox" name="location" value="City centre" checked> City centre</label>
+        <label><input type="checkbox" name="location" value="Zagreb" checked> Zagreb</label>
+      </fieldset>
+      <fieldset>
+        <legend>Telegram</legend>
+        <label><input type="radio" name="notified" value="any" checked> Any</label>
+        <label><input type="radio" name="notified" value="no"> Not sent yet</label>
+        <label><input type="radio" name="notified" value="yes"> Already sent</label>
+      </fieldset>
+      <fieldset>
+        <legend>Employer</legend>
+        <div id="employer-filters" class="check-list"></div>
+      </fieldset>
+      <button type="button" id="filter-reset" class="btn btn-wide">Clear filters</button>
+    </form>
+  </aside>
+
+  <main>
+    <p id="error" class="error" hidden></p>
+    <p id="empty" class="empty" hidden>No listings match these filters.</p>
+    <ol id="results" class="results"></ol>
+  </main>
+
+  <script src="./app.js"></script>
+</body>
+</html>

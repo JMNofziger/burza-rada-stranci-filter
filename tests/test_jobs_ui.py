@@ -1,16 +1,14 @@
 from __future__ import annotations
 
-import http.client
 import json
 import tempfile
-import threading
 import unittest
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from scraper import JobListing
 from storage import StateStore, job_row_to_view, location_label_for, urgency_for_days
-from web.app import jobs_payload, make_server
+from web.export import jobs_payload, write_jobs_json
 
 
 TODAY = date(2026, 8, 21)
@@ -142,53 +140,24 @@ class ListJobsTests(unittest.TestCase):
         self.assertFalse(view["notified"])
 
 
-class ApiJobsTests(unittest.TestCase):
+class ExportWebTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.db = Path(self.tmp.name) / "jobs.sqlite3"
         self.store = StateStore(self.db)
-        self.httpd = make_server("127.0.0.1", 0, self.db, today=TODAY)
-        self.port = self.httpd.server_address[1]
-        self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
-        self.thread.start()
 
     def tearDown(self):
-        self.httpd.shutdown()
-        self.httpd.server_close()
         self.store.close()
         self.tmp.cleanup()
 
-    def _get(self, path: str) -> tuple[int, str, bytes]:
-        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
-        try:
-            conn.request("GET", path)
-            resp = conn.getresponse()
-            return resp.status, resp.getheader("Content-Type"), resp.read()
-        finally:
-            conn.close()
-
-    def test_empty_api_and_index(self):
-        status, ctype, body = self._get("/api/jobs")
-        self.assertEqual(status, 200)
-        self.assertIn("application/json", ctype)
-        payload = json.loads(body)
+    def test_empty_export(self):
+        dest = Path(self.tmp.name) / "jobs.json"
+        write_jobs_json(self.store, path=dest, now=datetime(2026, 8, 21, 9, 0, 0), today=TODAY)
+        payload = json.loads(dest.read_text())
         self.assertEqual(payload["jobs"], [])
-        self.assertIn("generated_at", payload)
-        self.assertTrue(payload["generated_at"].endswith("Z"))
+        self.assertEqual(payload["generated_at"], "2026-08-21T09:00:00Z")
 
-        status, ctype, html = self._get("/")
-        self.assertEqual(status, 200)
-        self.assertIn("text/html", ctype)
-        text = html.decode("utf-8")
-        self.assertIn("id=\"table\"", text)
-        self.assertIn("tabulator", text.lower())
-        self.assertNotIn("TELEGRAM_BOT_TOKEN", text)
-        self.assertNotIn("TELEGRAM_CHAT_ID", text)
-
-        status, _, _ = self._get("/nope")
-        self.assertEqual(status, 404)
-
-    def test_seeded_jobs_json(self):
+    def test_seeded_export_and_payload(self):
         self.store.upsert_job(
             JobListing(
                 web_sifra="165734230",
@@ -203,40 +172,33 @@ class ApiJobsTests(unittest.TestCase):
                 matched_keywords=["radnu dozvolu"],
             )
         )
-        status, _, body = self._get("/api/jobs")
-        self.assertEqual(status, 200)
-        payload = json.loads(body)
+        dest = Path(self.tmp.name) / "jobs.json"
+        write_jobs_json(self.store, path=dest, now=datetime(2026, 8, 21, 9, 0, 0), today=TODAY)
+        payload = json.loads(dest.read_text())
         self.assertEqual(len(payload["jobs"]), 1)
         job = payload["jobs"][0]
         self.assertEqual(job["web_sifra"], "165734230")
-        self.assertEqual(job["title"], "INZENJER")
-        self.assertEqual(job["deadline_date"], (TODAY + timedelta(days=2)).isoformat())
-        self.assertEqual(job["days_until_deadline"], 2)
         self.assertEqual(job["urgency"], "48h")
         self.assertEqual(job["location_label"], "City centre")
-        self.assertFalse(job["notified"])
-        self.assertNotIn("TELEGRAM_BOT_TOKEN", json.dumps(payload))
+        self.assertNotIn("TELEGRAM_BOT_TOKEN", dest.read_text())
+        helper = jobs_payload(self.store, now=datetime(2026, 8, 21, 9, 0, 0), today=TODAY)
+        self.assertEqual(helper["jobs"][0]["days_until_deadline"], 2)
 
-    def test_jobs_payload_helper_uses_injected_today(self):
-        self.store.upsert_job(
-            JobListing(
-                web_sifra="1",
-                title="T",
-                employer="E",
-                location_raw="ZAGREB",
-                deadline_raw="",
-                detail_url="https://example.test/1",
-                deadline_date=date(2026, 8, 28),
-                foreign_score=2,
-                location_score=1,
-            )
-        )
-        payload = jobs_payload(
-            self.store, now=datetime(2026, 8, 21, 9, 0, 0), today=TODAY
-        )
-        self.assertEqual(payload["generated_at"], "2026-08-21T09:00:00Z")
-        self.assertEqual(payload["jobs"][0]["days_until_deadline"], 7)
-        self.assertEqual(payload["jobs"][0]["urgency"], "7d")
+
+class PublicBoardStaticTests(unittest.TestCase):
+    def test_board_is_a_filter_drawer_not_a_local_server(self):
+        root = Path(__file__).resolve().parents[1]
+        html = (root / "docs" / "index.html").read_text()
+        css = (root / "docs" / "styles.css").read_text()
+        js = (root / "docs" / "app.js").read_text()
+        self.assertIn('id="filters"', html)
+        self.assertIn("Expiring", html)
+        self.assertIn("./jobs.json", js)
+        self.assertIn(".drawer", css)
+        self.assertNotIn("tabulator", html.lower())
+        self.assertNotIn("127.0.0.1", html)
+        self.assertNotIn("TELEGRAM_BOT_TOKEN", html + js)
+        self.assertNotIn("TELEGRAM_CHAT_ID", html + js)
 
 
 if __name__ == "__main__":

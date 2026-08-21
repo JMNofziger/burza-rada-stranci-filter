@@ -1,1 +1,1 @@
-"""Local matching-jobs spreadsheet UI (stdlib HTTP server)."""
+"""Public jobs-board JSON export (GitHub Pages)."""

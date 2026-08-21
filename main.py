@@ -3,9 +3,9 @@ main.py
 CLI entrypoint.
 
     python main.py bootstrap      # one-time: queue existing matches into a 6-day review
-    python main.py daily          # cron target: collect new matches every day, publish them
+    python main.py daily          # cron target: collect new matches, refresh the public board
     python main.py full-scrape    # resumable one-off complete scrape (see --phase)
-    python main.py serve          # local spreadsheet of matching jobs (127.0.0.1)
+    python main.py export-web     # rewrite docs/jobs.json from the current DB
 
 Wrapped in a top-level try/except so a cron-triggered failure logs a full
 traceback and exits non-zero (visible in GitHub Actions / cron mail) instead
@@ -31,6 +31,7 @@ import scoring
 from http_client import build_session
 from scraper import JobListing, fetch_detail, iter_zagreb_candidates, parse_hr_date
 from storage import StateStore
+from web.export import write_jobs_json
 
 log = logging.getLogger("hzz_pipeline")
 
@@ -142,6 +143,7 @@ def _finish_successful_collect(store: StateStore) -> None:
             config.EXPIRED_JOB_RETENTION_DAYS,
             config.OPEN_ENDED_JOB_RETENTION_DAYS,
         )
+    write_jobs_json(store)
 
 
 def seed_backlog(listings: list, store: StateStore) -> dict[int, list]:
@@ -469,6 +471,7 @@ def run_full_scrape_details(limit: int = 0) -> int:
             matched_n,
             remaining,
         )
+        write_jobs_json(store)
     return fetched
 
 
@@ -533,10 +536,10 @@ def run_full_scrape(phase: str, limit: int = 0, reset_list: bool = False) -> Non
     run_full_scrape_notify()
 
 
-def run_serve(port: int) -> None:
-    from web.app import DEFAULT_HOST, serve
-
-    serve(host=DEFAULT_HOST, port=port)
+def run_export_web() -> None:
+    with StateStore() as store:
+        path = write_jobs_json(store)
+    print(f"Wrote {path}")
 
 
 def main() -> None:
@@ -553,7 +556,7 @@ def main() -> None:
             "smoke",
             "alert-critical",
             "full-scrape",
-            "serve",
+            "export-web",
         ],
     )
     parser.add_argument("message", nargs="?", default="", help="Alert body for alert-critical")
@@ -574,12 +577,6 @@ def main() -> None:
         action="store_true",
         help="full-scrape list: start a new occupation walk, ignoring leftover category checkpoints",
     )
-    parser.add_argument(
-        "--port",
-        type=int,
-        default=8765,
-        help="serve: loopback port (default 8765)",
-    )
     args = parser.parse_args()
 
     try:
@@ -595,8 +592,8 @@ def main() -> None:
             run_alert_critical(args.message)
         elif args.mode == "full-scrape":
             run_full_scrape(args.phase, limit=args.limit, reset_list=args.reset_list)
-        elif args.mode == "serve":
-            run_serve(args.port)
+        elif args.mode == "export-web":
+            run_export_web()
         else:
             run_daily()
     except KeyboardInterrupt:
