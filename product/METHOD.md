@@ -4,7 +4,7 @@ Subset of public [HZZ Burza rada](https://burzarada.hzz.hr) listings for **Grad 
 
 Two **independent** inclusion tracks. A listing is on the board if **location_score > 0** and **at least one** track hits. Telegram digests still publish **track A only**.
 
-Official occupation titles live in [`data/uv-occupations.json`](data/uv-occupations.json). Keyword weights live in [`config.py`](config.py) (`FOREIGNER_KEYWORDS`). Matching code: [`scoring.py`](scoring.py), [`shortage.py`](shortage.py).
+Official occupation titles live in [`data/uv-occupations.json`](../data/uv-occupations.json). Keyword weights live in [`config.py`](../config.py) (`FOREIGNER_KEYWORDS`). Matching code: [`scoring.py`](../scoring.py), [`shortage.py`](../shortage.py).
 
 ---
 
@@ -14,7 +14,7 @@ Official occupation titles live in [`data/uv-occupations.json`](data/uv-occupati
 2. **Location.** `location_score > 0` (2 = city centre, 1 = Zagreb, 0 = drop).
 3. Other counties are not scraped.
 
-IDs are HZZ `WebSifra`. Dated ads: kept 3 calendar days after `deadline_date`. Open-ended ads: 90 days after first seen. Refresh: GitHub Actions daily 06:00 UTC plus manual full scrape. `generated_at` on `docs/jobs.json` is the last successful export.
+IDs are HZZ `WebSifra`. Dated ads: kept 3 calendar days after `deadline_date`. Open-ended ads: 90 days after first seen. Refresh: GitHub Actions daily 06:00 UTC plus manual full scrape. `generated_at` on `docs/jobs.json` is the last successful export. Operator runbook: [OPERATIONS.md](OPERATIONS.md).
 
 ---
 

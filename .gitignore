@@ -34,3 +34,5 @@ data/*
 
 # Modeling briefs for the board — must not publish on GitHub Pages
 docs/ui-update.md
+
+# Operator docs live in /product, not /docs (Pages uploads docs/ only).

@@ -198,7 +198,7 @@ class PublicBoardStaticTests(unittest.TestCase):
         self.html = (root / "docs" / "index.html").read_text()
         self.css = (root / "docs" / "styles.css").read_text()
         self.js = (root / "docs" / "app.js").read_text()
-        self.method = (root / "METHOD.md").read_text()
+        self.method = (root / "product" / "METHOD.md").read_text()
 
     def test_board_is_a_filter_drawer_not_a_local_server(self):
         self.assertIn('id="filters"', self.html)
@@ -270,10 +270,11 @@ class PublicBoardStaticTests(unittest.TestCase):
         self.assertIn('.split(",")', self.js)
 
     def test_method_page_linked_and_bilingual(self):
-        self.assertTrue((self.root / "METHOD.md").is_file())
+        self.assertTrue((self.root / "product" / "METHOD.md").is_file())
+        self.assertFalse((self.root / "METHOD.md").exists())
         self.assertFalse((self.root / "docs" / "method.html").exists())
         self.assertIn(
-            "github.com/JMNofziger/burza-rada-stranci-filter/blob/main/METHOD.md",
+            "github.com/JMNofziger/burza-rada-stranci-filter/blob/main/product/METHOD.md",
             self.html,
         )
         self.assertNotIn('href="./method.html"', self.html)
