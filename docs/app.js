@@ -2,6 +2,8 @@ const I18N = {
   en: {
     title: "Matching jobs",
     subtitle: "Grad Zagreb · open to third-country nationals",
+    method: "Method",
+    listings: "listings",
     filters: "Filters",
     done: "Done",
     search: "Search title, employer, keywords",
@@ -24,6 +26,7 @@ const I18N = {
     tgAny: "Any",
     tgNo: "Not sent yet",
     tgYes: "Already sent",
+    tgSent: "Telegram",
     employer: "Employer",
     clear: "Clear filters",
     empty: "No listings match these filters.",
@@ -32,10 +35,22 @@ const I18N = {
     openEnded: "open-ended",
     score: "score",
     theme: "Switch color theme",
+    tipScore: "Weighted phrase hits in title, employer, and detail; threshold 2 to appear on this board.",
+    tipKeyword: "Phrase that contributed to the foreigner score.",
+    tipUrgency48h: "Application deadline within 48 hours (listing deadline vs generated_at).",
+    tipUrgency7d: "Application deadline within 7 days (listing deadline vs generated_at).",
+    tipUrgencyLater: "Application deadline more than 7 days away.",
+    tipUrgencyOpen: "No application deadline on the listing.",
+    tipUrgencyExpired: "Deadline has passed; kept for 3 days.",
+    tipLocCentre: "Location score 2: Zagreb city centre.",
+    tipLocZagreb: "Location score 1: Zagreb, not city centre.",
+    tipTelegram: "Already included in a Telegram digest.",
   },
   hr: {
     title: "Odgovarajući poslovi",
     subtitle: "Grad Zagreb · otvoreno državljanima trećih zemalja",
+    method: "Metoda",
+    listings: "oglasi",
     filters: "Filtri",
     done: "Gotovo",
     search: "Pretraži naslov, poslodavca, ključne riječi",
@@ -58,6 +73,7 @@ const I18N = {
     tgAny: "Sve",
     tgNo: "Još nije poslano",
     tgYes: "Već poslano",
+    tgSent: "Telegram",
     employer: "Poslodavac",
     clear: "Očisti filtre",
     empty: "Nijedan oglas ne odgovara filterima.",
@@ -66,12 +82,30 @@ const I18N = {
     openEnded: "bez roka",
     score: "rezultat",
     theme: "Promijeni temu",
+    tipScore: "Ponderirani pogoci fraza u naslovu, poslodavcu i opisu; prag 2 za prikaz na ovoj ploči.",
+    tipKeyword: "Fraza koja je pridonijela stranom rezultatu.",
+    tipUrgency48h: "Rok prijave unutar 48 sati (rok oglasa naspram generated_at).",
+    tipUrgency7d: "Rok prijave unutar 7 dana (rok oglasa naspram generated_at).",
+    tipUrgencyLater: "Rok prijave kasnije od 7 dana.",
+    tipUrgencyOpen: "Oglas nema rok prijave.",
+    tipUrgencyExpired: "Rok je prošao; ostaje 3 dana.",
+    tipLocCentre: "Lokacijski rezultat 2: centar Zagreba.",
+    tipLocZagreb: "Lokacijski rezultat 1: Zagreb, nije centar.",
+    tipTelegram: "Već uključeno u Telegram sažetak.",
   },
 };
 
 const URGENCY_LABEL = {
   en: { "48h": "48h", "7d": "7d", later: "later", open: "open", expired: "expired" },
   hr: { "48h": "48h", "7d": "7d", later: "kasnije", open: "bez roka", expired: "isteklo" },
+};
+
+const URGENCY_TIP = {
+  "48h": "tipUrgency48h",
+  "7d": "tipUrgency7d",
+  later: "tipUrgencyLater",
+  open: "tipUrgencyOpen",
+  expired: "tipUrgencyExpired",
 };
 
 const TITLE_CACHE_KEY = "hzz-title-en";
@@ -88,6 +122,8 @@ const state = {
 function $(id) {
   return document.getElementById(id);
 }
+
+const IS_BOARD = Boolean($("results"));
 
 function t(key) {
   return (I18N[state.lang] && I18N[state.lang][key]) || I18N.en[key] || key;
@@ -149,9 +185,15 @@ function applyI18n() {
     const key = el.getAttribute("data-i18n-placeholder");
     if (key && I18N[state.lang][key]) el.setAttribute("placeholder", I18N[state.lang][key]);
   });
-  $("theme-toggle").setAttribute("aria-label", t("theme"));
-  $("lang-en").setAttribute("aria-pressed", state.lang === "en" ? "true" : "false");
-  $("lang-hr").setAttribute("aria-pressed", state.lang === "hr" ? "true" : "false");
+  document.querySelectorAll("[data-lang-panel]").forEach((el) => {
+    el.hidden = el.getAttribute("data-lang-panel") !== state.lang;
+  });
+  const themeToggle = $("theme-toggle");
+  if (themeToggle) themeToggle.setAttribute("aria-label", t("theme"));
+  const langEn = $("lang-en");
+  const langHr = $("lang-hr");
+  if (langEn) langEn.setAttribute("aria-pressed", state.lang === "en" ? "true" : "false");
+  if (langHr) langHr.setAttribute("aria-pressed", state.lang === "hr" ? "true" : "false");
 }
 
 function setLang(lang) {
@@ -162,6 +204,7 @@ function setLang(lang) {
     /* ignore */
   }
   applyI18n();
+  if (!IS_BOARD) return;
   render();
   if (state.lang === "en") translateVisibleTitles();
 }
@@ -181,15 +224,21 @@ function setTheme(theme) {
 }
 
 function openDrawer() {
-  $("filters").classList.add("open");
-  $("backdrop").hidden = false;
-  $("filter-open").setAttribute("aria-expanded", "true");
+  const filters = $("filters");
+  const backdrop = $("backdrop");
+  const openBtn = $("filter-open");
+  if (filters) filters.classList.add("open");
+  if (backdrop) backdrop.hidden = false;
+  if (openBtn) openBtn.setAttribute("aria-expanded", "true");
 }
 
 function closeDrawer() {
-  $("filters").classList.remove("open");
-  $("backdrop").hidden = true;
-  $("filter-open").setAttribute("aria-expanded", "false");
+  const filters = $("filters");
+  const backdrop = $("backdrop");
+  const openBtn = $("filter-open");
+  if (filters) filters.classList.remove("open");
+  if (backdrop) backdrop.hidden = true;
+  if (openBtn) openBtn.setAttribute("aria-expanded", "false");
 }
 
 function checkedValues(name) {
@@ -207,10 +256,11 @@ function selectedEmployers() {
 }
 
 function applyFilters(jobs) {
-  const q = $("search").value.trim().toLowerCase();
+  const q = ($("search") && $("search").value.trim().toLowerCase()) || "";
   const urgency = new Set(checkedValues("urgency"));
   const location = new Set(checkedValues("location"));
-  const notified = document.querySelector("input[name=notified]:checked").value;
+  const notifiedEl = document.querySelector("input[name=notified]:checked");
+  const notified = notifiedEl ? notifiedEl.value : "any";
   const employers = selectedEmployers();
   return jobs.filter((job) => {
     if (urgency.size && !urgency.has(job.urgency)) return false;
@@ -235,7 +285,8 @@ function applyFilters(jobs) {
 }
 
 function sortJobs(jobs) {
-  const mode = $("sort").value;
+  const sortEl = $("sort");
+  const mode = sortEl ? sortEl.value : "deadline";
   const copy = [...jobs];
   copy.sort((a, b) => {
     if (mode === "title") {
@@ -258,8 +309,24 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
+function tipSpan(className, label, tipKey) {
+  const tip = t(tipKey);
+  return `<span class="${className} has-tip" data-tip="${escapeHtml(tip)}" title="${escapeHtml(tip)}">${escapeHtml(label)}</span>`;
+}
+
+function keywordPills(job) {
+  const raw = job.matched_keywords || "";
+  return raw
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((kw) => tipSpan("badge muted-pill", kw, "tipKeyword"))
+    .join("");
+}
+
 function renderEmployers(jobs) {
   const box = $("employer-filters");
+  if (!box) return;
   const names = [...new Set(jobs.map((j) => j.employer || "(unknown)"))].sort();
   box.innerHTML = names
     .map(
@@ -270,6 +337,7 @@ function renderEmployers(jobs) {
 }
 
 function render() {
+  if (!IS_BOARD) return;
   const filtered = sortJobs(applyFilters(state.jobs));
   const total = state.jobs.length;
   $("listing-count").textContent = listingCountText(filtered.length, total);
@@ -289,15 +357,20 @@ function render() {
         job.days_until_deadline === null || job.days_until_deadline === undefined
           ? ""
           : ` · ${job.days_until_deadline}d`;
+      const locKey = job.location_label === "City centre" ? "locCentre" : "locZagreb";
+      const locTip = job.location_label === "City centre" ? "tipLocCentre" : "tipLocZagreb";
+      const urgencyTip = URGENCY_TIP[job.urgency] || "tipUrgencyLater";
       return `<li>
         <a class="card" href="${escapeHtml(job.detail_url)}" target="_blank" rel="noopener">
           <h3>${escapeHtml(displayTitle(job))}</h3>
-          <p class="employer">${escapeHtml(job.employer)} · ${escapeHtml(job.location_label)}</p>
+          <p class="employer">${escapeHtml(job.employer)} · ${escapeHtml(t(locKey))}</p>
           <p>${escapeHtml(t("expires"))} ${escapeHtml(expiry)}${escapeHtml(days)}</p>
           <div class="badges">
-            <span class="badge u-${escapeHtml(job.urgency)}">${escapeHtml(urgencyLabels[job.urgency] || job.urgency)}</span>
-            <span class="badge muted-pill">${escapeHtml(t("score"))} ${escapeHtml(job.foreign_score)}</span>
-            ${job.matched_keywords ? `<span class="badge muted-pill">${escapeHtml(job.matched_keywords)}</span>` : ""}
+            ${tipSpan("badge u-" + escapeHtml(job.urgency), urgencyLabels[job.urgency] || job.urgency, urgencyTip)}
+            ${tipSpan("badge muted-pill", t("score") + " " + (job.foreign_score ?? ""), "tipScore")}
+            ${keywordPills(job)}
+            ${job.location_label ? tipSpan("badge muted-pill", t(locKey), locTip) : ""}
+            ${job.notified ? tipSpan("badge muted-pill", t("tgSent"), "tipTelegram") : ""}
           </div>
         </a>
       </li>`;
@@ -328,7 +401,7 @@ async function translateOne(job) {
 }
 
 async function translateVisibleTitles() {
-  if (state.lang !== "en" || state.translating) return;
+  if (!IS_BOARD || state.lang !== "en" || state.translating) return;
   const pending = state.jobs.filter((job) => job.title && !job.title_en);
   if (!pending.length) return;
   state.translating = true;
@@ -349,23 +422,37 @@ async function translateVisibleTitles() {
 }
 
 function bind() {
-  $("filter-open").addEventListener("click", openDrawer);
-  $("filter-close").addEventListener("click", closeDrawer);
-  $("backdrop").addEventListener("click", closeDrawer);
-  $("search").addEventListener("input", render);
-  $("sort").addEventListener("change", render);
-  $("filter-form").addEventListener("change", render);
-  $("filter-reset").addEventListener("click", () => {
-    $("filter-form").reset();
-    $("search").value = "";
-    renderEmployers(state.jobs);
-    render();
-  });
-  $("lang-en").addEventListener("click", () => setLang("en"));
-  $("lang-hr").addEventListener("click", () => setLang("hr"));
-  $("theme-toggle").addEventListener("click", () => {
-    setTheme(currentTheme() === "dark" ? "light" : "dark");
-  });
+  const filterOpen = $("filter-open");
+  const filterClose = $("filter-close");
+  const backdrop = $("backdrop");
+  const search = $("search");
+  const sort = $("sort");
+  const filterForm = $("filter-form");
+  const filterReset = $("filter-reset");
+  const langEn = $("lang-en");
+  const langHr = $("lang-hr");
+  const themeToggle = $("theme-toggle");
+  if (filterOpen) filterOpen.addEventListener("click", openDrawer);
+  if (filterClose) filterClose.addEventListener("click", closeDrawer);
+  if (backdrop) backdrop.addEventListener("click", closeDrawer);
+  if (search) search.addEventListener("input", render);
+  if (sort) sort.addEventListener("change", render);
+  if (filterForm) filterForm.addEventListener("change", render);
+  if (filterReset) {
+    filterReset.addEventListener("click", () => {
+      filterForm.reset();
+      if (search) search.value = "";
+      renderEmployers(state.jobs);
+      render();
+    });
+  }
+  if (langEn) langEn.addEventListener("click", () => setLang("en"));
+  if (langHr) langHr.addEventListener("click", () => setLang("hr"));
+  if (themeToggle) {
+    themeToggle.addEventListener("click", () => {
+      setTheme(currentTheme() === "dark" ? "light" : "dark");
+    });
+  }
 }
 
 try {
@@ -378,22 +465,26 @@ try {
 bind();
 applyI18n();
 
-fetch("./jobs.json", { cache: "no-store" })
-  .then((res) => {
-    if (!res.ok) throw new Error("Could not load jobs.json (" + res.status + ")");
-    return res.json();
-  })
-  .then((payload) => {
-    state.jobs = payload.jobs || [];
-    state.generatedAt = payload.generated_at;
-    $("generated").textContent = payload.generated_at || "not yet collected";
-    applyCachedTitles(state.jobs);
-    renderEmployers(state.jobs);
-    render();
-    if (state.lang === "en") translateVisibleTitles();
-  })
-  .catch((err) => {
-    const box = $("error");
-    box.hidden = false;
-    box.textContent = err.message || String(err);
-  });
+if (IS_BOARD) {
+  fetch("./jobs.json", { cache: "no-store" })
+    .then((res) => {
+      if (!res.ok) throw new Error("Could not load jobs.json (" + res.status + ")");
+      return res.json();
+    })
+    .then((payload) => {
+      state.jobs = payload.jobs || [];
+      state.generatedAt = payload.generated_at;
+      const generated = $("generated");
+      if (generated) generated.textContent = payload.generated_at || "not yet collected";
+      applyCachedTitles(state.jobs);
+      renderEmployers(state.jobs);
+      render();
+      if (state.lang === "en") translateVisibleTitles();
+    })
+    .catch((err) => {
+      const box = $("error");
+      if (!box) return;
+      box.hidden = false;
+      box.textContent = err.message || String(err);
+    });
+}

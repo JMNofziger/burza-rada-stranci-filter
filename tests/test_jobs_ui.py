@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import tempfile
 import unittest
 from datetime import date, datetime, timedelta
@@ -188,9 +189,11 @@ class ExportWebTests(unittest.TestCase):
 class PublicBoardStaticTests(unittest.TestCase):
     def setUp(self):
         root = Path(__file__).resolve().parents[1]
+        self.root = root
         self.html = (root / "docs" / "index.html").read_text()
         self.css = (root / "docs" / "styles.css").read_text()
         self.js = (root / "docs" / "app.js").read_text()
+        self.method = (root / "docs" / "method.html").read_text()
 
     def test_board_is_a_filter_drawer_not_a_local_server(self):
         self.assertIn('id="filters"', self.html)
@@ -224,6 +227,59 @@ class PublicBoardStaticTests(unittest.TestCase):
         self.assertIn("--accent: #e0a14a", self.css)
         self.assertIn("title_en", self.js)
         self.assertIn("langpair=hr|en", self.js)
+
+    def test_search_and_tools_live_in_main_not_header(self):
+        header = self.html.split("<header", 1)[1].split("</header>", 1)[0]
+        main = self.html.split("<main>", 1)[1].split("</main>", 1)[0]
+        self.assertNotIn('id="search"', header)
+        self.assertNotIn('id="sort"', header)
+        self.assertNotIn('id="listing-count"', header)
+        self.assertIn('id="search"', main)
+        self.assertIn('id="sort"', main)
+        self.assertIn('id="listing-count"', main)
+        self.assertIn('class="board"', self.html)
+
+    def test_desktop_board_grid_keeps_drawer_below_header(self):
+        self.assertIn(".board {", self.css)
+        self.assertIn("grid-template-columns: 260px minmax(0, 1fr)", self.css)
+        self.assertNotRegex(self.css, r"body\s*\{[^}]*grid-template-columns:\s*260px")
+        topbar_z = int(re.search(r"\.topbar\s*\{[^}]*z-index:\s*(\d+)", self.css).group(1))
+        self.assertGreaterEqual(topbar_z, 50)
+        desktop = self.css.split("@media (min-width: 860px)", 1)[1]
+        self.assertIn("z-index: 1", desktop)
+        self.assertIn("position: sticky", desktop)
+        self.assertIn("top: 5.25rem", desktop)
+        self.assertIn("align-self: start", desktop)
+        self.assertGreater(topbar_z, 1)
+
+    def test_tooltips_on_score_keywords_and_urgency(self):
+        self.assertIn("data-tip", self.js)
+        self.assertIn("has-tip", self.js)
+        self.assertIn("tipScore", self.js)
+        self.assertIn("tipKeyword", self.js)
+        self.assertIn("tipUrgency48h", self.js)
+        self.assertIn("tipLocCentre", self.js)
+        self.assertIn("tipTelegram", self.js)
+        self.assertIn('.has-tip', self.css)
+        self.assertIn("content: attr(data-tip)", self.css)
+        self.assertIn('.split(",")', self.js)
+
+    def test_method_page_linked_and_bilingual(self):
+        self.assertTrue((self.root / "docs" / "method.html").is_file())
+        self.assertIn('href="./method.html"', self.html)
+        self.assertIn('data-i18n="method"', self.html)
+        self.assertIn('method: "Method"', self.js)
+        self.assertIn('href="./index.html"', self.method)
+        self.assertIn('data-lang-panel="en"', self.method)
+        self.assertIn('data-lang-panel="hr"', self.method)
+        self.assertIn("WebSifra", self.method)
+        self.assertIn("FOREIGN_SCORE_THRESHOLD", self.method)
+        self.assertIn("Grad Zagreb", self.method)
+        self.assertIn("Svi poslovi", self.method)
+        self.assertNotIn('id="results"', self.method)
+        self.assertNotIn('id="search"', self.method)
+        self.assertIn("IS_BOARD", self.js)
+        self.assertIn('Boolean($("results"))', self.js)
 
 
 if __name__ == "__main__":

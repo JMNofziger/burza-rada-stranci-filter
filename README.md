@@ -329,12 +329,13 @@ Static site in `docs/` (GitHub Pages). Not a local server — there is no
 `serve` CLI. **Matching `jobs` only** — inspected non-matches are not listed.
 
 **Phone:** **Filters** opens a drawer (expiry, location, employer,
-Telegram-sent). **Desktop:** same filters stay in a left sidebar. Unchecked
-expiry or location (or employer) means **all listings**. Search and sort sit
-in the header. The **N of M listings** count sits above the cards. Nav has
-an **EN/HR** control (English translates card titles and searches them) and a
-sun/moon theme toggle; **dark is default**. Tapping a card opens the HZZ
-detail URL.
+Telegram-sent). **Desktop:** same filters stay in a left sidebar below the
+header; search, sort, and listing count live in the main column. Unchecked
+expiry or location (or employer) means **all listings**. The **N of M listings**
+count sits above the cards. Nav has an **EN/HR** control (English translates
+card titles and searches them), a sun/moon theme toggle (**dark is default**),
+and a **Method** page that explains inclusion rules. Tapping a card opens the
+HZZ detail URL.
 
 The board is empty until a successful collect writes matches. It refreshes
 when daily or full-scrape finishes and deploys Pages.

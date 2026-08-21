@@ -21,7 +21,7 @@
   <header class="topbar">
     <div class="topbar-inner">
       <div class="brand">
-        <h1 data-i18n="title">Matching jobs</h1>
+        <h1><a href="./index.html" data-i18n="title">Matching jobs</a></h1>
         <p class="subtitle" data-i18n="subtitle">Grad Zagreb · open to third-country nationals</p>
       </div>
       <div class="topbar-actions">
@@ -40,28 +40,17 @@
               d="M16.2 13.8A6.2 6.2 0 0 1 10.1 5a6.4 6.4 0 1 0 6.1 8.8Z"/>
           </svg>
         </button>
+        <a href="./method.html" class="btn ghost" data-i18n="method">Method</a>
         <button type="button" id="filter-open" class="btn ghost" aria-controls="filters" aria-expanded="false" data-i18n="filters">
           Filters
         </button>
       </div>
     </div>
-    <div class="topbar-inner tools">
-      <input id="search" type="search" data-i18n-placeholder="search" placeholder="Search title, employer, keywords" autocomplete="off">
-      <label class="sort-label">
-        <span data-i18n="sort">Sort</span>
-        <select id="sort">
-          <option value="deadline" data-i18n="sortDeadline">Expiry (soonest)</option>
-          <option value="newest" data-i18n="sortNewest">Newest seen</option>
-          <option value="score" data-i18n="sortScore">Foreign score</option>
-          <option value="title" data-i18n="sortTitle">Title A–Z</option>
-        </select>
-      </label>
-    </div>
-    <p class="meta"><span data-i18n="updated">Updated</span> <span id="generated">—</span></p>
   </header>
 
-  <div id="backdrop" class="backdrop" hidden></div>
-  <aside id="filters" class="drawer" aria-label="Filters">
+  <div class="board">
+    <div id="backdrop" class="backdrop" hidden></div>
+    <aside id="filters" class="drawer" aria-label="Filters">
     <div class="drawer-head">
       <h2 data-i18n="filters">Filters</h2>
       <button type="button" id="filter-close" class="btn ghost" data-i18n="done">Done</button>
@@ -92,14 +81,28 @@
       </fieldset>
       <button type="button" id="filter-reset" class="btn btn-wide danger-outline" data-i18n="clear">Clear filters</button>
     </form>
-  </aside>
+    </aside>
 
-  <main>
-    <p id="listing-count" class="listing-count" aria-live="polite">0 listings</p>
-    <p id="error" class="error" hidden></p>
-    <p id="empty" class="empty" hidden data-i18n="empty">No listings match these filters.</p>
-    <ol id="results" class="results"></ol>
-  </main>
+    <main>
+      <div class="tools">
+        <input id="search" type="search" data-i18n-placeholder="search" placeholder="Search title, employer, keywords" autocomplete="off">
+        <label class="sort-label">
+          <span data-i18n="sort">Sort</span>
+          <select id="sort">
+            <option value="deadline" data-i18n="sortDeadline">Expiry (soonest)</option>
+            <option value="newest" data-i18n="sortNewest">Newest seen</option>
+            <option value="score" data-i18n="sortScore">Foreign score</option>
+            <option value="title" data-i18n="sortTitle">Title A–Z</option>
+          </select>
+        </label>
+      </div>
+      <p class="meta"><span data-i18n="updated">Updated</span> <span id="generated">—</span></p>
+      <p id="listing-count" class="listing-count" aria-live="polite">0 listings</p>
+      <p id="error" class="error" hidden></p>
+      <p id="empty" class="empty" hidden data-i18n="empty">No listings match these filters.</p>
+      <ol id="results" class="results"></ol>
+    </main>
+  </div>
 
   <script src="./app.js"></script>
 </body>
