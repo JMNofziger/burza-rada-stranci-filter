@@ -3,6 +3,9 @@ name: HZZ Zagreb daily digest
 permissions:
   contents: write
 
+# Unattended daily pull: GitHub Actions cron fires without anyone prompting.
+# Scheduled workflows only run on the default branch (main) after this file
+# is merged, and only if TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID repo secrets exist.
 on:
   schedule:
     # GitHub Actions cron is UTC. 06:00 UTC ≈ 08:00 CEST (summer) / 07:00 CET
@@ -11,9 +14,14 @@ on:
     - cron: "0 6 * * *"
   workflow_dispatch: {}   # allow manual trigger from the Actions tab
 
+concurrency:
+  group: hzz-daily
+  cancel-in-progress: false
+
 jobs:
   run-digest:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 

@@ -59,7 +59,11 @@ def collect_and_score(session, store: StateStore, skip_seen: bool) -> list:
             continue  # already logged inside fetch_detail
         full_text = f"{detailed.title} {detailed.employer} {detailed.description}"
         detailed.foreign_score, detailed.matched_keywords = scoring.score_foreign_friendly(full_text)
-        detailed.location_score = scoring.score_location(detailed.location_raw, detailed.description)
+        detailed.location_score = scoring.score_location(
+            detailed.location_raw,
+            detailed.description,
+            in_zagreb_county=True,
+        )
         if detailed.foreign_score >= config.FOREIGN_SCORE_THRESHOLD and detailed.location_score > 0:
             results.append(detailed)
     return results

@@ -4,26 +4,22 @@ List-page and detail-page parsing.
 
 Two-stage crawl, by design
 ---------------------------
-Real ad text on this portal (confirmed from live example listings) shows the
-search/list page carrying only title, employer and a short location/deadline
-line -- the full description, where phrases like "osiguran smještaj" or
-"dozvola za boravak i rad" actually live, is only present on each job's
-detail page (`RadnoMjesto_Ispis.aspx?WebSifra=...`). Filtering on list-page
-text alone will silently miss most true positives. So:
+Real ad text on this portal shows the search/list page carrying only title,
+employer and a short location/deadline line -- the full description, where
+phrases like "osiguran smještaj" or "dozvola za boravak i rad" actually live,
+is only present on each job's detail page (`RadnoMjesto_Ispis.aspx?WebSifra=...`).
 
-  1. list page  -> cheap row parse (WebSifra, title, employer, raw location,
-                    raw deadline)
-  2. cheap filter -> keep rows whose raw location line mentions Zagreb at all
-                      (skip obvious non-Zagreb rows before spending a request
-                      on them)
-  3. detail page -> fetch full text, run the real foreign-friendly + centre
-                     scoring against it
-
-NOTE: the exact table/row CSS selectors below (`.rezultati-tablica`, etc.)
-are placeholders -- the live grid markup could not be confirmed (see
-README "Known unknowns"). Run `discover_form_fields` / inspect the page
-once in a browser and adjust `LIST_ROW_SELECTOR` / `DETAIL_TEXT_SELECTOR`
-accordingly before relying on this in production.
+Live site notes (confirmed 2026-08-21)
+--------------------------------------
+- Landing page is an occupation-category browser, not a result grid.
+- Filter županija via radio `ctl00$MainContent$rblZupanija` value `4` = GRAD ZAGREB.
+- "Svi poslovi" (`btnOblikRada_All`) opens a result grid, but that grid is
+  capped at 300 rows. Occupation categories on the browse page sum to ~1,080
+  Grad Zagreb jobs, so we iterate `lnkKategorija` instead of the capped dump.
+- Result grid: `#ctl00_MainContent_gwSearch`, rows contain `a.TitleLink`.
+- Pager: `ul.pagination` with `__doPostBack('ctl00$MainContent$gwSearch$ctlNN$ctlMM')`.
+  Never include the "Povratak na tražilicu" submit button in postback payloads.
+- Detail body: `#ctl00_MainContent_pnlAjaxBlock`.
 """
 
 from __future__ import annotations
@@ -38,13 +34,22 @@ from typing import Iterator, Optional
 from bs4 import BeautifulSoup
 
 import config
-from http_client import build_session, warm_up, _fix_encoding
+from http_client import (
+    extract_postback,
+    harvest_form_state,
+    submit_postback,
+    warm_up,
+    _fix_encoding,
+)
 
 log = logging.getLogger(__name__)
 
-# TODO/VERIFY: confirm against live DOM
-LIST_ROW_SELECTOR = "table.rezultati-tablica tr[data-web-sifra]"
-DETAIL_TEXT_SELECTOR = "#opisPosla, .opis-radnog-mjesta, .job-description"
+# Confirmed against live DOM (see module docstring).
+LIST_GRID_SELECTOR = "#ctl00_MainContent_gwSearch"
+LIST_TITLE_SELECTOR = "a.TitleLink"
+DETAIL_TEXT_SELECTOR = "#ctl00_MainContent_pnlAjaxBlock"
+ZUPANIJA_RADIO_SELECTOR = "#ctl00_MainContent_rblZupanija input[type=radio]"
+CATEGORY_EVENT_NEEDLE = "lnkKategorija"
 
 DATE_PATTERNS = [
     "%d.%m.%Y.",  # "27.12.2023."  -- the standard HR format seen live
@@ -90,29 +95,29 @@ def parse_hr_date(raw: str) -> Optional[date]:
 def fetch_list_page(session, soup: BeautifulSoup) -> list[JobListing]:
     """Parse job rows out of a single list-page response."""
     listings: list[JobListing] = []
-    rows = soup.select(LIST_ROW_SELECTOR)
+    grid = soup.select_one(LIST_GRID_SELECTOR)
+    rows = grid.find_all("tr") if grid is not None else []
     if not rows:
         log.warning(
-            "0 rows matched LIST_ROW_SELECTOR (%s) -- selector is likely stale, "
-            "verify against live markup.",
-            LIST_ROW_SELECTOR,
+            "0 rows matched %s -- selector is likely stale, verify against live markup.",
+            LIST_GRID_SELECTOR,
         )
+    seen_on_page: set[str] = set()
     for row in rows:
         try:
-            web_sifra = row.get("data-web-sifra") or _extract_web_sifra(row)
-            if not web_sifra:
+            title_el = row.select_one(LIST_TITLE_SELECTOR)
+            if title_el is None:
                 continue
-            title_el = row.select_one(".naslov, .job-title") or row
-            employer_el = row.select_one(".poslodavac, .employer")
-            location_el = row.select_one(".lokacija, .location")
-            deadline_el = row.select_one(".rok, .deadline")
-
+            web_sifra = _extract_web_sifra(row)
+            if not web_sifra or web_sifra in seen_on_page:
+                continue
+            seen_on_page.add(web_sifra)
             listing = JobListing(
                 web_sifra=str(web_sifra),
-                title=_clean(title_el.get_text() if title_el else ""),
-                employer=_clean(employer_el.get_text() if employer_el else ""),
-                location_raw=_clean(location_el.get_text() if location_el else ""),
-                deadline_raw=_clean(deadline_el.get_text() if deadline_el else ""),
+                title=_clean(title_el.get_text()),
+                employer=_clean(_labeled_span(row, "PosNazivLabel")),
+                location_raw=_clean(_labeled_span(row, "MjeNazivLabel")),
+                deadline_raw=_clean(_labeled_span(row, "RadMjeRokPrijaveLabel")),
                 detail_url=config.DETAIL_URL_TEMPLATE.format(web_sifra=web_sifra),
             )
             listing.deadline_date = parse_hr_date(listing.deadline_raw)
@@ -124,22 +129,24 @@ def fetch_list_page(session, soup: BeautifulSoup) -> list[JobListing]:
     return listings
 
 
+def _labeled_span(row, id_suffix: str) -> str:
+    el = row.select_one(f"span[id$={id_suffix}]")
+    return el.get_text() if el else ""
+
+
 def _extract_web_sifra(row) -> Optional[str]:
-    """Fallback: pull WebSifra out of a detail link's href if no data attr."""
+    """Pull WebSifra out of a detail link's href."""
     link = row.find("a", href=re.compile(r"WebSifra=(\d+)"))
     if not link:
         return None
-    match = re.search(r"WebSifra=(\d+)", link["href"])
+    match = re.search(r"WebSifra=(\d+)", link.get("href") or "")
     return match.group(1) if match else None
-
-
-def looks_like_zagreb(location_raw: str) -> bool:
-    return bool(re.search(config.ZAGREB_PATTERN, location_raw.lower()))
 
 
 def fetch_detail(session, listing: JobListing) -> Optional[JobListing]:
     """Fetch and attach full description text for one listing. Never raises."""
     try:
+        time.sleep(config.REQUEST_DELAY_SECONDS)
         resp = session.get(listing.detail_url, timeout=config.REQUEST_TIMEOUT_SECONDS)
         resp.raise_for_status()
         _fix_encoding(resp)
@@ -148,10 +155,19 @@ def fetch_detail(session, listing: JobListing) -> Optional[JobListing]:
         listing.description = _clean(body.get_text(separator="\n")) if body else ""
         if not listing.description:
             log.warning(
-                "Empty description for WebSifra=%s -- DETAIL_TEXT_SELECTOR "
-                "likely stale.",
+                "Empty description for WebSifra=%s -- DETAIL_TEXT_SELECTOR likely stale.",
                 listing.web_sifra,
             )
+        loc = soup.select_one("#ctl00_MainContent_lblMjestoRada")
+        if loc and not listing.location_raw:
+            listing.location_raw = _clean(loc.get_text())
+        emp = soup.select_one("#ctl00_MainContent_lblNazivPoslodavca")
+        if emp and not listing.employer:
+            listing.employer = _clean(emp.get_text())
+        deadline = soup.select_one("#ctl00_MainContent_lblVrijediDo")
+        if deadline and not listing.deadline_raw:
+            listing.deadline_raw = _clean(deadline.get_text())
+            listing.deadline_date = parse_hr_date(listing.deadline_raw)
         return listing
     except Exception:
         log.exception("Failed to fetch detail page for WebSifra=%s", listing.web_sifra)
@@ -162,38 +178,142 @@ def _clean(text: str) -> str:
     return re.sub(r"\s+", " ", text or "").strip()
 
 
+def _postback(session, soup: BeautifulSoup, event_target: str, extra: dict | None = None) -> BeautifulSoup:
+    state = harvest_form_state(soup)
+    overrides = {"__EVENTTARGET": event_target, "__EVENTARGUMENT": ""}
+    if extra:
+        overrides.update(extra)
+    time.sleep(config.REQUEST_DELAY_SECONDS)
+    return submit_postback(session, config.LIST_URL, state, overrides)
+
+
+def _grad_zagreb_postback(soup: BeautifulSoup) -> tuple[str, str]:
+    """Return (event_target, radio_value) for the GRAD ZAGREB county radio."""
+    wanted = config.ZUPANIJA_GRAD_ZAGREB_LABEL.casefold()
+    for inp in soup.select(ZUPANIJA_RADIO_SELECTOR):
+        label = soup.find("label", {"for": inp.get("id")})
+        text = _clean(label.get_text() if label else "")
+        if text.casefold() != wanted:
+            continue
+        parsed = extract_postback(inp.get("onclick") or "")
+        target = parsed[0] if parsed else f"{config.ZUPANIJA_FIELD}${inp.get('value')}"
+        return target, inp.get("value") or config.ZUPANIJA_GRAD_ZAGREB_VALUE
+    log.warning(
+        "GRAD ZAGREB radio not found; falling back to configured value %s",
+        config.ZUPANIJA_GRAD_ZAGREB_VALUE,
+    )
+    return (
+        f"{config.ZUPANIJA_FIELD}${config.ZUPANIJA_GRAD_ZAGREB_VALUE}",
+        config.ZUPANIJA_GRAD_ZAGREB_VALUE,
+    )
+
+
+def _occupation_categories(soup: BeautifulSoup) -> list[tuple[str, int, str]]:
+    """(event_target, listed_count, label) for each occupation category with jobs."""
+    found: list[tuple[str, int, str]] = []
+    for a in soup.find_all("a", href=True):
+        parsed = extract_postback(a["href"])
+        if not parsed or CATEGORY_EVENT_NEEDLE not in parsed[0]:
+            continue
+        label = _clean(a.get_text())
+        count_match = re.search(r"(\d+)\s*$", label)
+        count = int(count_match.group(1)) if count_match else 1
+        if count <= 0:
+            continue
+        found.append((parsed[0], count, label))
+    return found
+
+
+def _set_page_size(session, soup: BeautifulSoup) -> BeautifulSoup:
+    select = soup.select_one(f"select[name='{config.PAGE_SIZE_FIELD}']")
+    if select is None:
+        return soup
+    selected = select.find("option", selected=True)
+    if selected is not None and selected.get("value") == config.LIST_PAGE_SIZE:
+        return soup
+    return _postback(
+        session,
+        soup,
+        config.PAGE_SIZE_EVENT_TARGET,
+        {config.PAGE_SIZE_FIELD: config.LIST_PAGE_SIZE},
+    )
+
+
+def _next_page_target(soup: BeautifulSoup) -> Optional[str]:
+    pager = soup.select_one(f"{LIST_GRID_SELECTOR} ul.pagination")
+    if pager is None:
+        return None
+    active = pager.select_one("li.active")
+    if active is None:
+        return None
+    try:
+        current = int(_clean(active.get_text()))
+    except ValueError:
+        return None
+    for a in pager.find_all("a", href=True):
+        text = _clean(a.get_text())
+        if text.isdigit() and int(text) == current + 1:
+            parsed = extract_postback(a["href"])
+            return parsed[0] if parsed else None
+    return None
+
+
 def iter_zagreb_candidates(session) -> Iterator[JobListing]:
     """
-    Warm up the session, walk the (paginated) list, and yield only rows whose
-    raw location text mentions Zagreb -- callers still need to fetch each
-    yielded listing's detail page (fetch_detail) to score it properly.
-
-    Pagination is left as a documented gap: with ~7-8k active national
-    listings (confirmed live counter) you should filter server-side by
-    county/city via the search form rather than paging through everything
-    and discarding non-Zagreb rows client-side. See http_client.py /
-    discover_form_fields for how to find the right form field once you've
-    inspected the live page, then swap this generator's body to submit that
-    filtered search instead of iterating the unfiltered list.
+    Filter server-side to Grad Zagreb, walk each occupation category (avoids
+    the 300-row "Svi poslovi" cap), and yield every listing. Callers still
+    need fetch_detail() to score foreign-friendliness.
     """
     soup = warm_up(session)
-    page = 1
-    while soup is not None:
-        for listing in fetch_list_page(session, soup):
-            if looks_like_zagreb(listing.location_raw):
+    county_target, county_value = _grad_zagreb_postback(soup)
+    soup = _postback(
+        session,
+        soup,
+        county_target,
+        {config.ZUPANIJA_FIELD: county_value},
+    )
+    categories = _occupation_categories(soup)
+    if config.MAX_CATEGORIES:
+        categories = categories[: config.MAX_CATEGORIES]
+    log.info(
+        "Grad Zagreb browse page: %d occupation categories (listed job sum ~%d).",
+        len(categories),
+        sum(count for _, count, _ in categories),
+    )
+    if not categories:
+        log.warning("No occupation categories found after county filter -- markup may have changed.")
+        return
+
+    browse_soup = soup
+    seen: set[str] = set()
+    for event_target, listed_count, label in categories:
+        log.info("Category %s (listed %d)", label, listed_count)
+        # Always post back from the county-filtered browse snapshot so category
+        # LinkButtons are present. Listing pages do not contain them.
+        soup = _postback(
+            session,
+            browse_soup,
+            event_target,
+            {config.ZUPANIJA_FIELD: county_value},
+        )
+        soup = _set_page_size(session, soup)
+        page = 1
+        while soup is not None and page <= config.MAX_PAGES_PER_CATEGORY:
+            for listing in fetch_list_page(session, soup):
+                if listing.web_sifra in seen:
+                    continue
+                seen.add(listing.web_sifra)
                 yield listing
-        soup = _fetch_next_page(session, soup, page)
-        page += 1
-        time.sleep(config.REQUEST_DELAY_SECONDS)
-
-
-def _fetch_next_page(session, soup: BeautifulSoup, current_page: int) -> Optional[BeautifulSoup]:
-    """
-    TODO/VERIFY: wire this to the real pager control once identified (it will
-    be an __EVENTTARGET postback, e.g. targeting a LinkButton named something
-    like 'ctl00$cphMain$gridPaging$ctl02'). Returning None here stops the
-    crawl after the first page, which is a safe default until pagination is
-    confirmed rather than silently mis-scraping.
-    """
-    log.info("Pagination not yet wired up -- stopping after page %s.", current_page)
-    return None
+            next_target = _next_page_target(soup)
+            if not next_target:
+                break
+            soup = _postback(session, soup, next_target)
+            page += 1
+        else:
+            if page > config.MAX_PAGES_PER_CATEGORY:
+                log.warning(
+                    "Hit MAX_PAGES_PER_CATEGORY (%d) on %s; remaining rows skipped.",
+                    config.MAX_PAGES_PER_CATEGORY,
+                    label,
+                )
+    log.info("List crawl finished: %d unique Grad Zagreb WebSifra values.", len(seen))
