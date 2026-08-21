@@ -14,6 +14,19 @@ from storage import StateStore
 
 
 class PublishCadenceTests(unittest.TestCase):
+    def test_new_listings_title_catch_up(self):
+        from main import _new_listings_title
+
+        tmp = tempfile.TemporaryDirectory()
+        store = StateStore(Path(tmp.name) / "g.sqlite3")
+        try:
+            self.assertEqual(_new_listings_title(store), "New listings")
+            store.mark_collect_success(date.today() - timedelta(days=3))
+            self.assertIn("catch-up after 3 days", _new_listings_title(store))
+        finally:
+            store.close()
+            tmp.cleanup()
+
     def test_smoke_prefix(self):
         with patch.object(config, "IS_SMOKE", True):
             from main import _telegram_label
@@ -135,6 +148,12 @@ class StorageNewMatchTests(unittest.TestCase):
         self.assertFalse(self.store.is_empty())
         new = self.store.unnotified_new_matches()
         self.assertEqual([row["web_sifra"] for row in new], ["fresh"])
+
+    def test_collect_gap_days(self):
+        self.assertIsNone(self.store.days_since_last_success(date(2026, 8, 21)))
+        self.store.mark_collect_success(date(2026, 8, 19))
+        self.assertEqual(self.store.days_since_last_success(date(2026, 8, 21)), 2)
+        self.assertEqual(self.store.days_since_last_success(date(2026, 8, 19)), 0)
 
 
 if __name__ == "__main__":

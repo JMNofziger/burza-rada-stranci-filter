@@ -107,6 +107,20 @@ def _telegram_label(text: str) -> str:
     return f"SMOKE TEST — {text}" if config.IS_SMOKE else text
 
 
+def _new_listings_title(store: StateStore) -> str:
+    gap = store.days_since_last_success()
+    if gap is not None and gap >= 2:
+        return _telegram_label(f"New listings — catch-up after {gap} days")
+    return _telegram_label("New listings")
+
+
+def _finish_successful_collect(store: StateStore) -> None:
+    store.mark_collect_success()
+    removed = store.prune_expired()
+    if removed:
+        log.info("Pruned %d expired listings from the state DB.", removed)
+
+
 def seed_backlog(listings: list, store: StateStore) -> dict[int, list]:
     buckets = digest.build_initial_digest(listings)
     for day, jobs in buckets.items():
@@ -144,12 +158,10 @@ def run_daily() -> None:
             log.info("Initial seed: %d matching Zagreb listings.", len(listings))
             seed_backlog(listings, store)
             notify.send_new_matches_report(
-                token, chat_id, [], title=_telegram_label("New listings")
+                token, chat_id, [], title=_new_listings_title(store)
             )
             _publish_next_backlog_day(store, token, chat_id)
-            removed = store.prune_expired()
-            if removed:
-                log.info("Pruned %d expired listings from the state DB.", removed)
+            _finish_successful_collect(store)
             return
 
         new_listings = collect_and_score(session, store, skip_seen=True)
@@ -161,7 +173,7 @@ def run_daily() -> None:
             rows = store.unnotified_new_matches()
             if rows or config.NOTIFY_WHEN_NO_NEW_MATCHES:
                 notify.send_new_matches_report(
-                    token, chat_id, rows, title=_telegram_label("New listings")
+                    token, chat_id, rows, title=_new_listings_title(store)
                 )
             for row in rows:
                 store.mark_notified(row["web_sifra"])
@@ -173,10 +185,7 @@ def run_daily() -> None:
             )
 
         _publish_next_backlog_day(store, token, chat_id)
-
-        removed = store.prune_expired()
-        if removed:
-            log.info("Pruned %d expired listings from the state DB.", removed)
+        _finish_successful_collect(store)
 
 
 def _publish_next_backlog_day(store: StateStore, token: str, chat_id: str) -> None:
@@ -228,6 +237,44 @@ def run_chat_id() -> None:
             log.exception("Could not ping chat %s", chat["id"])
 
 
+def run_smoke() -> None:
+    """Cheap live scrape probe. No digest, no production DB writes."""
+    config.MAX_CATEGORIES = config.MAX_CATEGORIES or 1
+    config.MAX_LISTINGS = config.MAX_LISTINGS or 5
+    session = build_session()
+    candidates = []
+    for listing in iter_zagreb_candidates(session):
+        candidates.append(listing)
+        if len(candidates) >= 3:
+            break
+    if not candidates:
+        raise RuntimeError(
+            "Smoke failed: 0 Grad Zagreb list rows. Site markup or session likely broke."
+        )
+    detailed = fetch_detail(session, candidates[0])
+    if detailed is None or not detailed.description:
+        raise RuntimeError(
+            f"Smoke failed: detail page empty for WebSifra={candidates[0].web_sifra}."
+        )
+    log.info(
+        "Smoke OK: %d list rows sampled, detail WebSifra=%s (%d chars).",
+        len(candidates),
+        detailed.web_sifra,
+        len(detailed.description),
+    )
+    print(
+        f"Smoke OK: {len(candidates)} list rows, "
+        f"detail {detailed.web_sifra} ({len(detailed.description)} chars)."
+    )
+
+
+def run_alert_critical(message: str = "") -> None:
+    body = (message or "").strip() or "HZZ digest failed. See GitHub Actions logs."
+    token, chat_id = get_telegram_creds()
+    notify.send_critical_alert(token, chat_id, body)
+    print("Critical alert sent.")
+
+
 def run_telegram_check() -> None:
     token = get_telegram_token()
     chat_id = os.environ.get(config.TELEGRAM_ENV_CHAT_ID)
@@ -249,7 +296,11 @@ def main() -> None:
     setup_logging()
     load_local_secrets()
     parser = argparse.ArgumentParser(description="HZZ Zagreb foreign-friendly job digest")
-    parser.add_argument("mode", choices=["bootstrap", "daily", "chat-id", "telegram-check"])
+    parser.add_argument(
+        "mode",
+        choices=["bootstrap", "daily", "chat-id", "telegram-check", "smoke", "alert-critical"],
+    )
+    parser.add_argument("message", nargs="?", default="", help="Alert body for alert-critical")
     args = parser.parse_args()
 
     try:
@@ -259,6 +310,10 @@ def main() -> None:
             run_chat_id()
         elif args.mode == "telegram-check":
             run_telegram_check()
+        elif args.mode == "smoke":
+            run_smoke()
+        elif args.mode == "alert-critical":
+            run_alert_critical(args.message)
         else:
             run_daily()
     except Exception:

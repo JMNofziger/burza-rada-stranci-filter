@@ -44,6 +44,10 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_deadline ON jobs (deadline_date);
 CREATE INDEX IF NOT EXISTS idx_jobs_notified ON jobs (notified_at);
+CREATE TABLE IF NOT EXISTS meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
 
 
@@ -164,3 +168,30 @@ class StateStore:
                 (cutoff,),
             )
             return cur.rowcount
+
+    def get_meta(self, key: str) -> str | None:
+        cur = self._conn.execute("SELECT value FROM meta WHERE key = ?", (key,))
+        row = cur.fetchone()
+        return row["value"] if row else None
+
+    def set_meta(self, key: str, value: str) -> None:
+        with self.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO meta (key, value) VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                (key, value),
+            )
+
+    def days_since_last_success(self, today: date | None = None) -> int | None:
+        """Calendar days since last successful collect, or None if never succeeded."""
+        raw = self.get_meta("last_successful_collect_on")
+        if not raw:
+            return None
+        last = date.fromisoformat(raw)
+        today = today or date.today()
+        return (today - last).days
+
+    def mark_collect_success(self, today: date | None = None) -> None:
+        self.set_meta("last_successful_collect_on", (today or date.today()).isoformat())

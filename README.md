@@ -73,11 +73,11 @@ For that schedule to actually fire:
 2. **Add repo secrets** `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`
    (Settings → Secrets and variables → Actions).
 3. **Allow Actions** on the repo (Settings → Actions → General).
-4. Click **Run workflow** and leave **run_size = smoke** (default): 1 occupation
-   category, max 20 ads, isolated DB, a few minutes. Telegram is prefixed
-   `SMOKE TEST`. The 06:00 UTC cron always runs **full**. Do not use a smoke
-   DB as production state — a partial seed would make the rest of the board
-   look like "new" on the next full run.
+4. Click **Run workflow** and leave **run_size = smoke** for a silent health
+   probe (Telegram only if it fails). Cron and **full** always run that probe
+   first; on failure a **CRITICAL** alert is sent and the large collect is
+   skipped. Missed days are not dropped: the next successful collect publishes
+   all unseen matches and labels a catch-up if the last success was 2+ days ago.
 
 The first daily run seeds ~1,000 Grad Zagreb list rows into SQLite so they
 are not mistaken for "new today". Later days only fetch unseen `WebSifra`s
