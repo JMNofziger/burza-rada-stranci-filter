@@ -69,6 +69,48 @@ class NotifyTests(unittest.TestCase):
         line = notify.format_job_line(job)
         self.assertIn("Test", line)
         self.assertIn("City centre", line)
+        self.assertIn("Acme", line)
+
+    def test_job_line_translates_title_and_employer(self):
+        job = JobListing(
+            web_sifra="1",
+            title="KUHAR / ICA",
+            employer="Zdravstvena ustanova X",
+            location_raw="ZAGREB",
+            deadline_raw="",
+            detail_url="https://example.test",
+            deadline_date=date(2026, 9, 21),
+            location_score=1,
+        )
+
+        def fake_translate(text: str) -> str | None:
+            mapping = {
+                "KUHAR / ICA": "Cook",
+                "Zdravstvena ustanova X": "Health Institution X",
+            }
+            return mapping.get(text)
+
+        line = notify.format_job_line(job, translate=fake_translate)
+        self.assertIn("*Cook*", line)
+        self.assertNotIn("KUHAR", line)
+        self.assertIn("Zdravstvena ustanova X", line)
+        self.assertIn("Health Institution X", line)
+        employer_line = line.split("\n")[1]
+        self.assertLess(employer_line.find("Zdravstvena ustanova X"), employer_line.find("Health Institution X"))
+
+    def test_job_line_skips_employer_parens_when_translation_matches(self):
+        job = JobListing(
+            web_sifra="1",
+            title="Developer",
+            employer="Acme",
+            location_raw="ZAGREB",
+            deadline_raw="",
+            detail_url="https://example.test",
+            location_score=1,
+        )
+        line = notify.format_job_line(job, translate=lambda text: text)
+        self.assertIn("Acme", line)
+        self.assertNotIn("(", line.split("\n")[1])
 
     def test_fetch_chat_ids_dedupes(self):
         payload = {

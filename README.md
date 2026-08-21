@@ -4,7 +4,9 @@ Personal pipeline that scrapes [Burza rada (HZZ)](https://burzarada.hzz.hr)
 for **GRAD ZAGREB** listings that look open to third-country nationals
 (ad wording) **or** match the official UV shortage occupation list, then:
 
-1. Sends **English Telegram** digests (new matches only after the first fill).
+1. Sends **English Telegram** digests (new matches only after the first fill):
+   job titles are translated HR→EN; employer is the original name plus an
+   English translation in parentheses when it differs.
 2. Publishes a **phone-friendly jobs board** on GitHub Pages, updated after
    each successful collect.
 
@@ -375,6 +377,7 @@ age; weekly Actions re-hashes the PDF.
 | Table / file | Role |
 |--------------|------|
 | `jobs` | Filter **matches** (Telegram + board) |
+| `translations` | Cached HR→EN strings for Telegram (MyMemory) |
 | `inspected` | Every listed `WebSifra` (match or not) so details are not re-fetched |
 | `scrape_runs` / `scrape_categories` | Full-scrape list checkpoints |
 | `meta` | e.g. `last_successful_collect_on` |
@@ -433,6 +436,10 @@ print(len(jobs), jobs[0].title if jobs else None)
 `scoring.py` (Telegram). Title match to the UV TTR-exemption list in
 `shortage.py` / `data/uv-occupations.json` (board). Detail text is required
 for the keyword track; shortage matching uses the list-page title.
+
+**Telegram copy:** titles HR→EN via MyMemory (same endpoint as the board).
+Employer stays original, with English in parentheses when it differs.
+Cached in SQLite `translations`. Digest still sends if translation fails.
 
 **Dedup:** stable `WebSifra`, not a title hash.
 

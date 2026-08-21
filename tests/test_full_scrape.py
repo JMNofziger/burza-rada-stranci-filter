@@ -254,10 +254,10 @@ class FirstFillNotifyTests(unittest.TestCase):
 
         sent = []
 
-        def fake_new(token, chat_id, rows, title=""):
+        def fake_new(token, chat_id, rows, title="", store=None):
             sent.append(("new", list(rows), title))
 
-        def fake_digest(token, chat_id, title, rows):
+        def fake_digest(token, chat_id, title, rows, store=None):
             sent.append(("digest", title, [r["web_sifra"] for r in rows]))
 
         with patch("main.StateStore", lambda: StateStore(self.db)):

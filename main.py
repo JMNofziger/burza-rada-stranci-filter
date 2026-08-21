@@ -215,7 +215,7 @@ def run_daily() -> None:
             log.info("Initial seed: %d matching Zagreb listings.", len(listings))
             seed_backlog(listings, store)
             notify.send_new_matches_report(
-                token, chat_id, [], title=_new_listings_title(store)
+                token, chat_id, [], title=_new_listings_title(store), store=store
             )
             _publish_next_backlog_day(store, token, chat_id)
             _finish_successful_collect(store)
@@ -230,7 +230,7 @@ def run_daily() -> None:
             rows = store.unnotified_new_matches()
             if rows or config.NOTIFY_WHEN_NO_NEW_MATCHES:
                 notify.send_new_matches_report(
-                    token, chat_id, rows, title=_new_listings_title(store)
+                    token, chat_id, rows, title=_new_listings_title(store), store=store
                 )
             for row in rows:
                 store.mark_notified(row["web_sifra"])
@@ -254,7 +254,7 @@ def _publish_next_backlog_day(store: StateStore, token: str, chat_id: str) -> No
     if not rows:
         return
     notify.send_telegram_digest(
-        token, chat_id, _telegram_label(f"Existing listings — day {today_bucket_day}"), rows
+        token, chat_id, _telegram_label(f"Existing listings — day {today_bucket_day}"), rows, store=store
     )
     for row in rows:
         store.mark_notified(row["web_sifra"])
@@ -599,7 +599,7 @@ def run_full_scrape_notify() -> None:
                 )
                 seed_backlog(listings, store)
             notify.send_new_matches_report(
-                token, chat_id, [], title=_new_listings_title(store)
+                token, chat_id, [], title=_new_listings_title(store), store=store
             )
             _publish_next_backlog_day(store, token, chat_id)
         else:
@@ -607,7 +607,7 @@ def run_full_scrape_notify() -> None:
                 rows = store.unnotified_new_matches()
                 if rows or config.NOTIFY_WHEN_NO_NEW_MATCHES:
                     notify.send_new_matches_report(
-                        token, chat_id, rows, title=_new_listings_title(store)
+                        token, chat_id, rows, title=_new_listings_title(store), store=store
                     )
                 for row in rows:
                     store.mark_notified(row["web_sifra"])

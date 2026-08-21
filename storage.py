@@ -85,6 +85,13 @@ CREATE TABLE IF NOT EXISTS scrape_categories (
     PRIMARY KEY (run_id, event_target),
     FOREIGN KEY (run_id) REFERENCES scrape_runs(id)
 );
+CREATE TABLE IF NOT EXISTS translations (
+    source_text TEXT NOT NULL,
+    langpair    TEXT NOT NULL,
+    translated  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL,
+    PRIMARY KEY (source_text, langpair)
+);
 """
 
 
@@ -375,6 +382,40 @@ class StateStore:
                 ON CONFLICT(key) DO UPDATE SET value = excluded.value
                 """,
                 (key, value),
+            )
+
+    def get_translation(self, source_text: str, langpair: str = "hr|en") -> tuple[bool, str]:
+        """Return (cache_hit, translated). Empty translated means a remembered miss."""
+        cur = self._conn.execute(
+            """
+            SELECT translated FROM translations
+            WHERE source_text = ? AND langpair = ?
+            """,
+            (source_text, langpair),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return False, ""
+        return True, row["translated"] or ""
+
+    def set_translation(
+        self, source_text: str, langpair: str, translated: str
+    ) -> None:
+        with self.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO translations (source_text, langpair, translated, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(source_text, langpair) DO UPDATE SET
+                    translated=excluded.translated,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    source_text,
+                    langpair,
+                    translated,
+                    datetime.utcnow().isoformat(timespec="seconds"),
+                ),
             )
 
     def days_since_last_success(self, today: date | None = None) -> int | None:
