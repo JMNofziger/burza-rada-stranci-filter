@@ -303,6 +303,30 @@ class PublicBoardStaticTests(unittest.TestCase):
         self.assertGreaterEqual(self.method.count("radna dozvola"), 2)
         self.assertGreaterEqual(self.method.count("strani državljani"), 2)
 
+    def test_title_case_helper_keeps_abbreviations(self):
+        self.assertIn("function toDisplayCase", self.js)
+        self.assertIn("ZDRAVSTVENA USTANOVA", self.js)
+        self.assertIn("VPR EVENTS", self.js)
+        self.assertIn("Acme d.o.o.", self.js)
+        self.assertIn("d.o.o", self.js)
+        self.assertIn("letterCount < 2 || letterCount > 5", self.js)
+        self.assertIn("toDisplayCase(displayTitle(job))", self.js)
+        self.assertIn("toDisplayCase(job.employer)", self.js)
+        self.assertIn("toDisplayCase(job.location_raw", self.js)
+        self.assertIn("Display-only ALL CAPS", self.js)
+
+    def test_location_is_own_block_on_cards(self):
+        self.assertIn('class="card-location"', self.js)
+        self.assertIn(".card-location", self.css)
+        self.assertRegex(self.css, r"\.card-location\s*\{[^}]*display:\s*block")
+        self.assertNotIn("job.employer)} · ${escapeHtml(t(locKey))}", self.js)
+        self.assertNotIn("job.employer)} ·", self.js)
+        self.assertIn("job.location_raw || t(locKey)", self.js)
+        employer_line = [line for line in self.js.splitlines() if "class=\"employer\"" in line]
+        self.assertTrue(employer_line)
+        self.assertNotIn(" · ", employer_line[0])
+        self.assertNotIn("locKey", employer_line[0])
+
 
 if __name__ == "__main__":
     unittest.main()

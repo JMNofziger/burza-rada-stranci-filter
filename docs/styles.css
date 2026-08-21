@@ -317,6 +317,12 @@ main {
   color: var(--text);
   font-size: 0.95rem;
 }
+.card-location {
+  display: block;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
 .badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 0.7rem; }
 .badge, .pill {
   display: inline-block;
