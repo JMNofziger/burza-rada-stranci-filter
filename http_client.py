@@ -29,6 +29,7 @@ than hand-typing `ctl00$cphMain$...` names would be.
 from __future__ import annotations
 
 import logging
+import re
 
 import requests
 from bs4 import BeautifulSoup
@@ -45,6 +46,14 @@ ASPNET_HIDDEN_FIELDS = (
     "__EVENTVALIDATION",
     "__EVENTTARGET",
     "__EVENTARGUMENT",
+)
+
+# Including type=submit values in a postback payload makes ASP.NET treat the
+# request as a click on that button (e.g. "Povratak na tražilicu"), which
+# silently dumps you out of the result grid.
+_SKIP_INPUT_TYPES = {"submit", "image", "button", "file"}
+_POSTBACK_RE = re.compile(
+    r"__doPostBack\(\s*'(?P<target>[^']*)'\s*,\s*'(?P<argument>[^']*)'\s*\)"
 )
 
 
@@ -115,9 +124,22 @@ def harvest_form_state(soup: BeautifulSoup, form_selector: str = "form") -> dict
         elif tag.get("type") in ("checkbox", "radio"):
             if tag.has_attr("checked"):
                 state[name] = tag.get("value", "on")
+        elif (tag.get("type") or "text").lower() in _SKIP_INPUT_TYPES:
+            continue
         else:
             state[name] = tag.get("value", "")
     return state
+
+
+def extract_postback(href: str) -> tuple[str, str] | None:
+    """Parse __doPostBack('target','argument') from a javascript: href."""
+    if not href:
+        return None
+    normalized = href.replace("\\'", "'")
+    match = _POSTBACK_RE.search(normalized)
+    if not match:
+        return None
+    return match.group("target"), match.group("argument")
 
 
 def submit_postback(

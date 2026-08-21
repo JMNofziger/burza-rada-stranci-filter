@@ -2,18 +2,12 @@
 config.py
 Central, single-source-of-truth configuration for the HZZ Zagreb job pipeline.
 
-NOTE ON UNVERIFIED FIELDS
---------------------------
-The live search form's exact ASP.NET control names (for filtering server-side
-by županija/grad, or for postback pagination) could NOT be confirmed at the
-time this package was written -- direct fetches of
-https://burzarada.hzz.hr/Posloprimac_RadnaMjesta.aspx redirected in a loop,
-which is itself diagnostic (see README "Known unknowns"). Anything below
-marked TODO/VERIFY must be confirmed once against the live DOM using your
-browser's dev tools (Network tab) before first real run.
+Live ASP.NET control names below were confirmed against
+https://burzarada.hzz.hr/Posloprimac_RadnaMjesta.aspx (2026-08-21).
 """
 
 from pathlib import Path
+import os
 
 # ---------------------------------------------------------------------------
 # Site endpoints
@@ -34,6 +28,17 @@ REQUEST_DELAY_SECONDS = 1.0        # politeness delay between sequential request
 DETAIL_FETCH_MAX_WORKERS = 4       # bounded concurrency for detail-page fetches
 MAX_RETRIES = 3
 RETRY_BACKOFF_FACTOR = 1.5
+LIST_PAGE_SIZE = "75"              # site options: 10, 25, 50, 75
+MAX_PAGES_PER_CATEGORY = 20        # safety cap; largest Grad Zagreb category is ~230 jobs
+# Optional smoke-test limiter (unset or 0 = all occupation categories).
+MAX_CATEGORIES = int(os.environ.get("HZZ_MAX_CATEGORIES") or "0")
+
+# County radio on the occupation-browse page.
+ZUPANIJA_FIELD = "ctl00$MainContent$rblZupanija"
+ZUPANIJA_GRAD_ZAGREB_VALUE = "4"          # label: "GRAD ZAGREB" (not ZAGREBAČKA)
+ZUPANIJA_GRAD_ZAGREB_LABEL = "GRAD ZAGREB"
+PAGE_SIZE_EVENT_TARGET = "ctl00$MainContent$ddlPageSize"
+PAGE_SIZE_FIELD = "ctl00$MainContent$ddlPageSize"
 
 # ---------------------------------------------------------------------------
 # Storage / delivery

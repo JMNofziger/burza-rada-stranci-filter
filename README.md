@@ -14,36 +14,53 @@ python main.py bootstrap   # one-time: build the 6-day launch digest
 python main.py daily       # run once a day thereafter (see .github/workflows/daily.yml)
 ```
 
-## Known unknowns -- verify before relying on this in production
+## Unattended daily run
 
-Direct automated fetches of the search page redirected in a loop while this
-package was written, which is itself informative (see `http_client.py`) but
-means two things were **not** confirmed against live markup and are marked
-`TODO/VERIFY` in code:
+The GitHub Actions workflow `.github/workflows/daily.yml` already runs
+`python main.py daily` on a cron (`06:00 UTC`) with no human prompt.
 
-1. **Exact CSS selectors** for the result grid and detail-page description
-   (`scraper.py: LIST_ROW_SELECTOR`, `DETAIL_TEXT_SELECTOR`). Open the page
-   in a real browser, inspect one result row and one detail page, and adjust.
-2. **Server-side search filtering / pagination control names.** Run
-   `python -c "from http_client import build_session, discover_form_fields; discover_form_fields(build_session())"`
-   once, submit a Zagreb-filtered search manually in the browser meanwhile,
-   and diff the two field sets to find the county/city selector and pager
-   control. Wire the result into `scraper._fetch_next_page` and, ideally, a
-   `search_zagreb()` function that filters server-side instead of paging
-   through the full national list (see "Scale" below).
+For that schedule to actually fire:
 
-What **was** confirmed from live examples during review:
-- The site is classic ASP.NET WebForms (`AspxAutoDetectCookieSupport` cookie
-  bounce, `Ispis.aspx?WebSifra=NNNNNNNNN` detail URLs).
-- Each job has a stable numeric `WebSifra` -- use it as the primary key
-  (this package does), don't derive an ID from title+employer+deadline.
-- A live counter on the homepage showed roughly **7,900 active listings**
-  nationally at the time of writing -- see "Scale" below for why that
-  matters.
-- A separate "MessageScreen" page requires e-Građani login to proceed for
-  certain actions (employer-side postings, CV management). Public listing
-  search/viewing itself does not appear to require login, but keep an eye
-  out for any request that unexpectedly redirects there.
+1. **Merge this workflow to `main`.** GitHub only runs `on.schedule` from the
+   default branch.
+2. **Add repo secrets** `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`
+   (Settings → Secrets and variables → Actions).
+3. **Allow Actions** on the repo (Settings → Actions → General).
+4. Optionally click **Run workflow** once on the Actions tab to smoke-test
+   `workflow_dispatch` before waiting for 06:00 UTC.
+
+The first daily run will scrape ~1,000 Grad Zagreb list rows and fetch
+detail pages for unseen jobs (tens of minutes). Later days only fetch new
+`WebSifra`s. The SQLite state file is committed back to the repo so dedup
+survives ephemeral runners.
+
+## Live site behaviour (verified 2026-08-21)
+
+- Session warm-up + cookie persistence reaches the occupation-browse page
+  (`Posloprimac_RadnaMjesta.aspx`).
+- County filter is radio `ctl00$MainContent$rblZupanija`; **value `4` is
+  GRAD ZAGREB** (do not confuse with **ZAGREBAČKA**, value `21`, the county
+  around the city).
+- Result grid is `#ctl00_MainContent_gwSearch` with `a.TitleLink` rows and
+  `ul.pagination` postbacks. Detail body is `#ctl00_MainContent_pnlAjaxBlock`.
+- **"Svi poslovi" is capped at 300 rows.** Occupation categories on the
+  browse page listed ~1,080 Grad Zagreb jobs, so the crawler iterates
+  `lnkKategorija` (then paginates inside each category) instead of the
+  capped dump.
+- Postback payloads must **not** include the `btnTrazilica` submit button or
+  ASP.NET treats the request as "back to search" and the grid disappears.
+
+Smoke-test a single category against the live site:
+
+```bash
+HZZ_MAX_CATEGORIES=1 python -c "
+from http_client import build_session
+from scraper import iter_zagreb_candidates
+s = build_session()
+jobs = list(iter_zagreb_candidates(s))
+print(len(jobs), jobs[0].title if jobs else None)
+"
+```
 
 ## Critique of the original design (summary)
 
@@ -72,10 +89,9 @@ What **was** confirmed from live examples during review:
 - **No error isolation / logging / rate limiting**: one malformed row or one
   slow/failing detail request shouldn't kill an unattended cron job. Every
   per-row/per-page operation here is wrapped and logged individually.
-- **Scale**: ~7,900 active national listings means naively paging through
-  *everything* and discarding non-Zagreb rows client-side is wasteful and
-  slow. Prefer the site's own search filter (county/city = Zagreb) once its
-  form fields are identified (see "Known unknowns").
+- **Scale**: ~7,900 active national listings; Grad Zagreb is ~1,080. The
+  crawler filters županija server-side and walks occupation categories
+  (the unfiltered "Svi poslovi" grid is capped at 300 rows).
 - **Regex looseness**: `\b10000\b` will match a postal code appearing
   *anywhere* in free text (e.g. a salary figure), not just an actual
   location field -- lower risk once matching happens against a structured

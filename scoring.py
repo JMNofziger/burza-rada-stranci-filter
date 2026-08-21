@@ -71,10 +71,20 @@ def score_foreign_friendly(text: str) -> tuple[int, list[str]]:
     return total, matched
 
 
-def score_location(location_raw: str, description: str = "") -> int:
-    """0 = not Zagreb, 1 = Zagreb general, 2 = Zagreb city centre."""
+def score_location(
+    location_raw: str,
+    description: str = "",
+    *,
+    in_zagreb_county: bool = False,
+) -> int:
+    """0 = not Zagreb, 1 = Zagreb general, 2 = Zagreb city centre.
+
+    `in_zagreb_county=True` when the crawl already applied the Grad Zagreb
+    server-side filter -- districts like Sesvete omit the word "Zagreb".
+    """
     combined = normalize(f"{location_raw} {description}")
-    if not re.search(config.ZAGREB_PATTERN, combined):
+    is_zagreb = in_zagreb_county or bool(re.search(config.ZAGREB_PATTERN, combined))
+    if not is_zagreb:
         return 0
     if any(re.search(pat, combined) for pat in config.CENTAR_PATTERNS):
         return 2
