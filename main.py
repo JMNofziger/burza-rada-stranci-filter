@@ -184,26 +184,51 @@ def _current_bootstrap_day(store: StateStore) -> int | None:
 def run_chat_id() -> None:
     token = get_telegram_token()
     print(
-        "1. Open your bot in Telegram and send it any message (e.g. hi).\n"
-        "2. Re-run this command if the list below is empty.\n"
+        "This bot does not reply in Telegram until we send a digest or ping.\n"
+        "Open YOUR bot (not @BotFather), tap Start, send hi, then this command\n"
+        "will print the chat id and send a one-line confirmation.\n"
     )
     chats = notify.fetch_chat_ids(token)
     if not chats:
         print(
-            "No chats yet. Message the bot first, then run: python main.py chat-id\n"
-            "Put the numeric id into TELEGRAM_CHAT_ID in .env"
+            "No chats yet. In Telegram:\n"
+            "  1. Open the bot you created (the one whose token is in .env)\n"
+            "  2. Tap Start / send hi — it will stay silent; that is normal\n"
+            "  3. Run: python main.py chat-id\n"
         )
         return
     print("Chats that have talked to this bot:")
     for chat in chats:
         print(f"  TELEGRAM_CHAT_ID={chat['id']}  ({chat['type']}: {chat['title']})")
+        try:
+            notify.send_connection_ping(token, chat["id"])
+            print(f"  Sent a confirmation ping to {chat['id']}. Check Telegram.")
+        except Exception:
+            log.exception("Could not ping chat %s", chat["id"])
+
+
+def run_telegram_check() -> None:
+    token = get_telegram_token()
+    chat_id = os.environ.get(config.TELEGRAM_ENV_CHAT_ID)
+    if not chat_id:
+        raise RuntimeError(
+            "TELEGRAM_CHAT_ID is missing. Add it as a GitHub Actions secret "
+            "or in `.env`, then re-run."
+        )
+    info = notify.verify_telegram_connection(token, chat_id)
+    print(
+        "Telegram secrets are valid.\n"
+        f"  bot: @{info['bot_username']} (id {info['bot_id']})\n"
+        f"  chat: {info['chat_id']} ({info['chat_type']}: {info['chat_name']})\n"
+        "No message was sent."
+    )
 
 
 def main() -> None:
     setup_logging()
     load_local_secrets()
     parser = argparse.ArgumentParser(description="HZZ Zagreb foreign-friendly job digest")
-    parser.add_argument("mode", choices=["bootstrap", "daily", "chat-id"])
+    parser.add_argument("mode", choices=["bootstrap", "daily", "chat-id", "telegram-check"])
     args = parser.parse_args()
 
     try:
@@ -211,6 +236,8 @@ def main() -> None:
             run_bootstrap()
         elif args.mode == "chat-id":
             run_chat_id()
+        elif args.mode == "telegram-check":
+            run_telegram_check()
         else:
             run_daily()
     except Exception:
