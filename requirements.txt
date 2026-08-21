@@ -5,7 +5,6 @@ rapidfuzz>=3.9        # optional: fuzzy keyword fallback, safe to omit
 python-dateutil>=2.9
 python-dotenv>=1.0     # local .env secrets; no-op in GitHub Actions
 
-# Optional, heavier NLP upgrade path (see README "Enhancements") -- not
-# required by the code in this package, only if you build out full
-# lemmatization instead of the curated-keyword-variant approach:
+# Optional, heavier NLP upgrade path -- not required by this package;
+# only if you replace the curated-keyword-variant approach with lemmatization:
 # classla>=2.1

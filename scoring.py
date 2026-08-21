@@ -2,8 +2,7 @@
 scoring.py
 Foreign-friendliness scoring and location scoring.
 
-Upgrades over naive substring matching (see README "Enhancements" for the
-full discussion of lemmatization/NLP options):
+Upgrades over naive substring matching:
   - unicodedata normalization + casefold instead of .lower(), so diacritics
     and mixed-case ad text (ALL CAPS titles are common on this portal, e.g.
     "STOLAR-ICA") don't cause missed matches.

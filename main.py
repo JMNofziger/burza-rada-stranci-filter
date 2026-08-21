@@ -1,15 +1,18 @@
 """
 main.py
-CLI entrypoint.
+CLI entrypoint. There is no `serve` mode — the jobs board is GitHub Pages.
 
-    python main.py bootstrap      # one-time: queue existing matches into a 6-day review
-    python main.py daily          # cron target: collect new matches, refresh the public board
-    python main.py full-scrape    # resumable one-off complete scrape (see --phase)
-    python main.py export-web     # rewrite docs/jobs.json from the current DB
+    python main.py bootstrap         # score matches; seed 6-day backlog (no Telegram)
+    python main.py daily             # collect new matches, Telegram, prune, export board
+    python main.py full-scrape       # resumable scrape (`--phase` list|details|notify|status|all)
+    python main.py export-web        # rewrite docs/jobs.json from the current DB
+    python main.py smoke             # cheap live probe; no Telegram, no DB writes
+    python main.py telegram-check    # validate bot token + chat id; no scrape
+    python main.py chat-id           # print chats and ping
+    python main.py alert-critical    # send a CRITICAL Telegram
 
-Wrapped in a top-level try/except so a cron-triggered failure logs a full
-traceback and exits non-zero (visible in GitHub Actions / cron mail) instead
-of dying silently.
+Wrapped in a top-level try/except so a failure logs a full traceback and
+exits non-zero (visible in GitHub Actions) instead of dying silently.
 """
 
 from __future__ import annotations
@@ -545,7 +548,13 @@ def run_export_web() -> None:
 def main() -> None:
     setup_logging()
     load_local_secrets()
-    parser = argparse.ArgumentParser(description="HZZ Zagreb foreign-friendly job digest")
+    parser = argparse.ArgumentParser(
+        description=(
+            "HZZ Zagreb foreign-friendly job digest. "
+            "Modes: bootstrap, daily, full-scrape, export-web, smoke, "
+            "telegram-check, chat-id, alert-critical. No serve — board is GitHub Pages."
+        )
+    )
     parser.add_argument(
         "mode",
         choices=[

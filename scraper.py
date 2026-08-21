@@ -18,7 +18,8 @@ Live site notes (confirmed 2026-08-21)
   Grad Zagreb jobs, so we iterate `lnkKategorija` instead of the capped dump.
 - Result grid: `#ctl00_MainContent_gwSearch`, rows contain `a.TitleLink`.
 - Pager: `ul.pagination` with `__doPostBack('ctl00$MainContent$gwSearch$ctlNN$ctlMM')`.
-  Never include the "Povratak na tražilicu" submit button in postback payloads.
+- Never include the "Povratak na tražilicu" submit button in postback payloads.
+- Politeness delay: 1 s between sequential requests (`REQUEST_DELAY_SECONDS`).
 - Detail body: `#ctl00_MainContent_pnlAjaxBlock`.
 """
 
