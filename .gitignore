@@ -30,3 +30,6 @@ data/*
 .vscode/
 *.swp
 *~
+
+# Modeling briefs for the board — must not publish on GitHub Pages
+docs/ui-update.md

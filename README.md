@@ -336,8 +336,9 @@ an **EN/HR** control (English translates card titles and searches them) and a
 sun/moon theme toggle; **dark is default**. Tapping a card opens the HZZ
 detail URL.
 
-The board is empty until a successful collect writes matches. It refreshes
-when daily or full-scrape finishes and deploys Pages.
+The board lists **matching `jobs`** after a successful collect. It refreshes
+when daily or full-scrape finishes and deploys Pages, or when `docs/` HTML
+changes merge and `pages.yml` runs.
 
 ## What is stored
 
@@ -349,9 +350,11 @@ when daily or full-scrape finishes and deploys Pages.
 | `meta` | e.g. `last_successful_collect_on` |
 | `docs/jobs.json` | Public board payload (`generated_at` + jobs) |
 
-GitHub Actions runners are ephemeral, so `data/hzz_jobs.sqlite3` **and**
-`docs/jobs.json` are committed back to the repo after a successful collect
-(until then the tree has `data/.gitkeep` and an empty `jobs.json`).
+GitHub Actions runners are ephemeral, so SQLite **and** `docs/jobs.json`
+are committed after each successful collect (`[skip ci]`). First fill has
+already landed: `data/hzz_jobs.sqlite3` and a non-empty `docs/jobs.json`
+are on `main`. `data/.gitkeep` remains so the folder exists if the DB is
+ever missing.
 
 ## GitHub limits
 
@@ -373,7 +376,7 @@ runners.
 - Grid `#ctl00_MainContent_gwSearch`, `a.TitleLink`, pager `ul.pagination`.
   Detail body `#ctl00_MainContent_pnlAjaxBlock`.
 - **"Svi poslovi" is capped at 300 rows.** The crawler walks `lnkKategorija`
-  (~1,080 Grad Zagreb jobs).
+  (~1,170 Grad Zagreb jobs).
 - Never include `btnTrazilica` in postback payloads.
 - **1 s delay** (`REQUEST_DELAY_SECONDS`) between sequential HTTP requests.
 
