@@ -13,10 +13,28 @@ cp .env.example .env          # local secrets; never commit .env
 python main.py bootstrap      # one-time: queue existing matches into a 6-day review
 python main.py daily          # collect new matches (cron target)
 python main.py full-scrape --phase status   # resumable one-off complete scrape
+python main.py serve          # local spreadsheet of matching jobs
 ```
 
 `.env` is gitignored. GitHub Actions uses repo secrets with the same names
 instead of that file.
+
+## Local spreadsheet view
+
+Matching jobs live in `data/hzz_jobs.sqlite3`. Browse them locally with a
+stdlib HTTP server (no extra Python deps, no public hosting):
+
+```bash
+python main.py serve            # http://127.0.0.1:8765
+python main.py serve --port 9000
+```
+
+This is **loopback-only** (`127.0.0.1`). It is a personal digest, not a
+GitHub Pages site. The page is a spreadsheet of **matching** jobs (the
+`jobs` table), with per-column filters, a search box, and CSV export.
+Expiry is `deadline_date`; urgency is derived (`48h` / `7d` / `open` /
+`later` / `expired`). An empty database is valid — the table has no rows
+until a collect has stored matches.
 
 ## Telegram chat ID
 
@@ -58,6 +76,7 @@ Look for `"chat":{"id": 123456789`.
 | **daily** (main feature) | Scrape every day. Publish **only brand-new** filter matches. If none, send an explicit "no new ads" Telegram. |
 | **bootstrap** | One-time backlog: existing matches paced across 6 days so reviewing current posts is sane. `daily` sends the next bucket until that queue is empty. |
 | **full-scrape** | Manual complete Grad Zagreb pass, split into **list → details → notify** so a failure resumes from the last checkpoint instead of starting over. |
+| **serve** | Local spreadsheet of matching jobs at `http://127.0.0.1:8765` (loopback only). |
 
 Collection stays daily even if you later switch publishing to weekly
 (`NEW_MATCH_PUBLISH_CADENCE = "weekly"` in `config.py`). Expiry-soon
