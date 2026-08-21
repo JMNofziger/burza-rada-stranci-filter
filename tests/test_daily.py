@@ -149,6 +149,17 @@ class StorageNewMatchTests(unittest.TestCase):
         new = self.store.unnotified_new_matches()
         self.assertEqual([row["web_sifra"] for row in new], ["fresh"])
 
+    def test_shortage_only_jobs_are_not_telegram_new_matches(self):
+        keyword = self._listing("kw")
+        shortage_only = self._listing("uv")
+        shortage_only.foreign_score = 0
+        shortage_only.shortage_match = True
+        shortage_only.shortage_occupations = ["kuhar-kuharica"]
+        self.store.upsert_job(keyword, digest_day=None)
+        self.store.upsert_job(shortage_only, digest_day=None)
+        new = [row["web_sifra"] for row in self.store.unnotified_new_matches()]
+        self.assertEqual(new, ["kw"])
+
     def test_collect_gap_days(self):
         self.assertIsNone(self.store.days_since_last_success(date(2026, 8, 21)))
         self.store.mark_collect_success(date(2026, 8, 19))

@@ -1,7 +1,7 @@
 const I18N = {
   en: {
     title: "Matching jobs",
-    subtitle: "Grad Zagreb · open to third-country nationals",
+    subtitle: "Grad Zagreb · foreigner-coded ads or UV shortage occupations",
     method: "Method",
     listings: "listings",
     filters: "Filters",
@@ -19,6 +19,9 @@ const I18N = {
     ulater: "Later",
     uopen: "Open-ended",
     uexpired: "Expired",
+    track: "Track",
+    trackText: "Foreigner-coded ad",
+    trackShortage: "Shortage occupation (TTR skip)",
     location: "Location",
     locCentre: "City centre",
     locZagreb: "Zagreb",
@@ -35,8 +38,9 @@ const I18N = {
     openEnded: "open-ended",
     score: "score",
     theme: "Switch color theme",
-    tipScore: "Weighted phrase hits in title, employer, and detail; threshold 2 to appear on this board.",
+    tipScore: "Weighted phrase hits in title, employer, and detail; threshold 2 for the foreigner-text track.",
     tipKeyword: "Phrase that contributed to the foreigner score.",
+    tipShortage: "Job title matches the official HZZ TTR-exemption occupation list (Upravno vijeće). Not a sponsorship guarantee.",
     tipUrgency48h: "Application deadline within 48 hours (listing deadline vs generated_at).",
     tipUrgency7d: "Application deadline within 7 days (listing deadline vs generated_at).",
     tipUrgencyLater: "Application deadline more than 7 days away.",
@@ -48,7 +52,7 @@ const I18N = {
   },
   hr: {
     title: "Odgovarajući poslovi",
-    subtitle: "Grad Zagreb · otvoreno državljanima trećih zemalja",
+    subtitle: "Grad Zagreb · oglasi s tekstom o strancima ili deficitarna zanimanja UV",
     method: "Metoda",
     listings: "oglasi",
     filters: "Filtri",
@@ -66,6 +70,9 @@ const I18N = {
     ulater: "Kasnije",
     uopen: "Bez roka",
     uexpired: "Isteklo",
+    track: "Kolosijek",
+    trackText: "Oglas s tekstom o strancima",
+    trackShortage: "Deficitarno zanimanje (bez TTR-a)",
     location: "Lokacija",
     locCentre: "Centar grada",
     locZagreb: "Zagreb",
@@ -82,8 +89,9 @@ const I18N = {
     openEnded: "bez roka",
     score: "rezultat",
     theme: "Promijeni temu",
-    tipScore: "Ponderirani pogoci fraza u naslovu, poslodavcu i opisu; prag 2 za prikaz na ovoj ploči.",
+    tipScore: "Ponderirani pogoci fraza u naslovu, poslodavcu i opisu; prag 2 za kolosijek teksta o strancima.",
     tipKeyword: "Fraza koja je pridonijela stranom rezultatu.",
+    tipShortage: "Naslov oglasa odgovara službenoj HZZ listi zanimanja izuzetih od TTR-a (Upravno vijeće). Nije jamstvo sponzorstva.",
     tipUrgency48h: "Rok prijave unutar 48 sati (rok oglasa naspram generated_at).",
     tipUrgency7d: "Rok prijave unutar 7 dana (rok oglasa naspram generated_at).",
     tipUrgencyLater: "Rok prijave kasnije od 7 dana.",
@@ -259,12 +267,14 @@ function applyFilters(jobs) {
   const q = ($("search") && $("search").value.trim().toLowerCase()) || "";
   const urgency = new Set(checkedValues("urgency"));
   const location = new Set(checkedValues("location"));
+  const tracks = new Set(checkedValues("track"));
   const notifiedEl = document.querySelector("input[name=notified]:checked");
   const notified = notifiedEl ? notifiedEl.value : "any";
   const employers = selectedEmployers();
   return jobs.filter((job) => {
     if (urgency.size && !urgency.has(job.urgency)) return false;
     if (location.size && !location.has(job.location_label)) return false;
+    if (tracks.size && !(job.tracks || []).some((tr) => tracks.has(tr))) return false;
     if (notified === "yes" && !job.notified) return false;
     if (notified === "no" && job.notified) return false;
     if (employers && !employers.has(job.employer || "(unknown)")) return false;
@@ -275,6 +285,7 @@ function applyFilters(jobs) {
       displayTitle(job),
       job.employer,
       job.matched_keywords,
+      job.shortage_occupations,
       job.location_raw,
       job.web_sifra,
     ]
@@ -437,6 +448,7 @@ function render() {
           <div class="badges">
             ${tipSpan("badge u-" + escapeHtml(job.urgency), urgencyLabels[job.urgency] || job.urgency, urgencyTip)}
             ${tipSpan("badge muted-pill", t("score") + " " + (job.foreign_score ?? ""), "tipScore")}
+            ${job.shortage_match ? tipSpan("badge muted-pill", t("trackShortage"), "tipShortage") : ""}
             ${keywordPills(job)}
             ${job.location_label ? tipSpan("badge muted-pill", t(locKey), locTip) : ""}
             ${job.notified ? tipSpan("badge muted-pill", t("tgSent"), "tipTelegram") : ""}

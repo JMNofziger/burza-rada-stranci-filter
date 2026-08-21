@@ -1,0 +1,29 @@
+name: UV occupation list freshness
+
+# Re-check the official MUP PDF so data/uv-occupations.json cannot silently
+# drift. Local tests already fail if verifiedDate is older than 90 days.
+on:
+  schedule:
+    - cron: "0 8 * * 1"
+  workflow_dispatch:
+  push:
+    paths:
+      - data/uv-occupations.json
+      - shortage.py
+      - .github/workflows/uv-list.yml
+
+permissions:
+  contents: read
+
+jobs:
+  check-pdf:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Compare live PDF hash to listMeta.sourceSha256
+        run: |
+          python shortage.py --check-pdf

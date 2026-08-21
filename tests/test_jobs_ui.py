@@ -139,6 +139,7 @@ class ListJobsTests(unittest.TestCase):
         self.assertEqual(view["urgency"], "open")
         self.assertEqual(view["location_label"], "City centre")
         self.assertFalse(view["notified"])
+        self.assertEqual(view["tracks"], ["foreigner_text"])
 
 
 class ExportWebTests(unittest.TestCase):
@@ -157,6 +158,8 @@ class ExportWebTests(unittest.TestCase):
         payload = json.loads(dest.read_text())
         self.assertEqual(payload["jobs"], [])
         self.assertEqual(payload["generated_at"], "2026-08-21T09:00:00Z")
+        self.assertEqual(payload["uv_list"]["edition"], "2023-03")
+        self.assertIn("sourceUrl", payload["uv_list"])
 
     def test_seeded_export_and_payload(self):
         self.store.upsert_job(
@@ -181,6 +184,8 @@ class ExportWebTests(unittest.TestCase):
         self.assertEqual(job["web_sifra"], "165734230")
         self.assertEqual(job["urgency"], "48h")
         self.assertEqual(job["location_label"], "City centre")
+        self.assertEqual(job["tracks"], ["foreigner_text"])
+        self.assertFalse(job["shortage_match"])
         self.assertNotIn("TELEGRAM_BOT_TOKEN", dest.read_text())
         helper = jobs_payload(self.store, now=datetime(2026, 8, 21, 9, 0, 0), today=TODAY)
         self.assertEqual(helper["jobs"][0]["days_until_deadline"], 2)
@@ -193,7 +198,7 @@ class PublicBoardStaticTests(unittest.TestCase):
         self.html = (root / "docs" / "index.html").read_text()
         self.css = (root / "docs" / "styles.css").read_text()
         self.js = (root / "docs" / "app.js").read_text()
-        self.method = (root / "docs" / "method.html").read_text()
+        self.method = (root / "METHOD.md").read_text()
 
     def test_board_is_a_filter_drawer_not_a_local_server(self):
         self.assertIn('id="filters"', self.html)
@@ -265,21 +270,24 @@ class PublicBoardStaticTests(unittest.TestCase):
         self.assertIn('.split(",")', self.js)
 
     def test_method_page_linked_and_bilingual(self):
-        self.assertTrue((self.root / "docs" / "method.html").is_file())
-        self.assertIn('href="./method.html"', self.html)
+        self.assertTrue((self.root / "METHOD.md").is_file())
+        self.assertFalse((self.root / "docs" / "method.html").exists())
+        self.assertIn(
+            "github.com/JMNofziger/burza-rada-stranci-filter/blob/main/METHOD.md",
+            self.html,
+        )
+        self.assertNotIn('href="./method.html"', self.html)
         self.assertIn('data-i18n="method"', self.html)
         self.assertIn('method: "Method"', self.js)
-        self.assertIn('href="./index.html"', self.method)
-        self.assertIn('data-lang-panel="en"', self.method)
-        self.assertIn('data-lang-panel="hr"', self.method)
         self.assertIn("WebSifra", self.method)
         self.assertIn("FOREIGN_SCORE_THRESHOLD", self.method)
         self.assertIn("Grad Zagreb", self.method)
         self.assertIn("Svi poslovi", self.method)
-        self.assertNotIn('id="results"', self.method)
-        self.assertNotIn('id="search"', self.method)
-        self.assertIn("IS_BOARD", self.js)
-        self.assertIn('Boolean($("results"))', self.js)
+        self.assertIn("Track A", self.method)
+        self.assertIn("Track B", self.method)
+        self.assertIn("Kolosijek A", self.method)
+        self.assertIn("Kolosijek B", self.method)
+        self.assertIn("uv-occupations.json", self.method)
 
     def test_method_page_documents_foreigner_score_lexicon(self):
         import config
@@ -287,9 +295,7 @@ class PublicBoardStaticTests(unittest.TestCase):
         self.assertIn("Weight 3", self.method)
         self.assertIn("Weight 2", self.method)
         self.assertIn("Weight 1", self.method)
-        self.assertIn("Težina 3", self.method)
-        self.assertIn("Težina 2", self.method)
-        self.assertIn("Težina 1", self.method)
+        self.assertIn("Težine 3 / 2 / 1", self.method)
         self.assertIn("radna dozvola", self.method)
         self.assertIn("strani državljani", self.method)
         self.assertIn("NEGATION_WINDOW_CHARS = 25", self.method)
@@ -297,11 +303,19 @@ class PublicBoardStaticTests(unittest.TestCase):
         self.assertIn("isključivo eu", self.method)
         self.assertIn("samo eu državljani", self.method)
         for phrase in config.FOREIGNER_KEYWORDS:
-            self.assertIn(f"<code>{phrase}</code>", self.method)
+            self.assertIn(f"`{phrase}`", self.method)
         for marker in config.NEGATION_MARKERS:
-            self.assertIn(f"<code>{marker}</code>", self.method)
+            self.assertIn(f"`{marker}`", self.method)
         self.assertGreaterEqual(self.method.count("radna dozvola"), 2)
         self.assertGreaterEqual(self.method.count("strani državljani"), 2)
+
+    def test_board_has_shortage_track_filter(self):
+        self.assertIn('name="track"', self.html)
+        self.assertIn('value="foreigner_text"', self.html)
+        self.assertIn('value="shortage_occupation"', self.html)
+        self.assertIn("tipShortage", self.js)
+        self.assertIn("job.shortage_match", self.js)
+        self.assertIn("job.tracks", self.js)
 
     def test_title_case_helper_keeps_abbreviations(self):
         self.assertIn("function toDisplayCase", self.js)
