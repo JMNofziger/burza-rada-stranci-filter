@@ -76,6 +76,8 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -84,12 +86,7 @@ jobs:
       - name: Run daily pipeline
         run: python main.py daily
       - name: Persist state DB and jobs board
-        run: |
-          git config user.name "hzz-digest-bot"
-          git config user.email "actions@users.noreply.github.com"
-          git add data/hzz_jobs.sqlite3 docs/jobs.json
-          git diff --cached --quiet || git commit -m "chore: update job state DB [skip ci]"
-          git push
+        run: bash .github/scripts/persist-state.sh "chore: update job state DB [skip ci]"
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload Pages artifact

@@ -90,7 +90,9 @@ the two that have a **Run workflow** button.
 - **`[skip ci]` commits:** persist steps commit SQLite / `docs/jobs.json`
   with `[skip ci]` so Tests does not re-run. Daily/full-scrape still deploy
   Pages **in the same run** (they do not rely on `pages.yml` for data
-  updates).
+  updates). If `main` moved while the job ran (another merge), persist
+  **rebases** the state commit onto origin and retries the push instead of
+  failing.
 - **Scheduled workflows** only fire from the **default branch** (`main`)
   after the file is merged.
 - **Smoke** is silent on success. Telegram only on failure (CRITICAL).
@@ -216,6 +218,11 @@ backlog** instead of flooding Telegram with every match as “new”.
 
 If the scrape job dies mid-batch, at most `detail_batch_size` detail pages
 are lost. Re-run with `start_phase = details`.
+
+If persist **push is rejected** because `main` moved, the job rebases and
+retries. A failed persist **before that fix** dropped the un-pushed
+checkpoint — re-run `start_phase = all` (or `list`) so the occupation walk
+is recorded on `main` again.
 
 ---
 

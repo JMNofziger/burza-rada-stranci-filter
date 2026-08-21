@@ -82,6 +82,8 @@ jobs:
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -94,22 +96,9 @@ jobs:
           RESET_LIST: ${{ github.event.inputs.reset_list }}
         run: |
           set -euo pipefail
-          git config user.name "hzz-digest-bot"
-          git config user.email "actions@users.noreply.github.com"
 
           persist_db() {
-            local msg="$1"
-            if [ ! -f data/hzz_jobs.sqlite3 ]; then
-              echo "No state DB; skip persist ($msg)"
-              return 0
-            fi
-            git add data/hzz_jobs.sqlite3 docs/jobs.json
-            if git diff --cached --quiet; then
-              echo "No SQLite changes to persist ($msg)"
-              return 0
-            fi
-            git commit -m "$msg"
-            git push
+            bash .github/scripts/persist-state.sh "$1"
           }
 
           PHASE="${START_PHASE:-all}"
