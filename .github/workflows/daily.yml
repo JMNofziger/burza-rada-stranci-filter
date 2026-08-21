@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       run_size:
-        description: "smoke = health probe + tiny digest. full = health probe then all Grad Zagreb."
+        description: "smoke = silent health probe (Telegram only on failure). full = probe then all Grad Zagreb."
         type: choice
         options:
           - smoke
@@ -92,27 +92,6 @@ jobs:
           else
             echo "No state DB produced; skipping persist step."
           fi
-
-  collect-smoke:
-    name: Smoke digest (manual)
-    needs: smoke
-    if: ${{ success() && github.event_name == 'workflow_dispatch' && github.event.inputs.run_size == 'smoke' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-      - name: Run smoke digest
-        env:
-          HZZ_SMOKE: "1"
-          HZZ_MAX_CATEGORIES: "1"
-          HZZ_MAX_LISTINGS: "20"
-          HZZ_DB_PATH: data/hzz_jobs.smoke.sqlite3
-        run: python main.py daily
 
   alert-collect:
     name: Critical alert (full collect failed)

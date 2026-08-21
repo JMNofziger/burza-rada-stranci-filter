@@ -73,12 +73,11 @@ For that schedule to actually fire:
 2. **Add repo secrets** `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`
    (Settings → Secrets and variables → Actions).
 3. **Allow Actions** on the repo (Settings → Actions → General).
-4. Click **Run workflow** and leave **run_size = smoke** for a few-minute
-   health probe plus tiny digest (`SMOKE TEST`). Cron and **full** always
-   run the smoke scrape first; if it fails, Telegram gets a **CRITICAL**
-   alert and the large collect is skipped. Missed days are not dropped:
-   the next successful collect publishes all unseen matches and labels a
-   catch-up if the last success was 2+ days ago.
+4. Click **Run workflow** and leave **run_size = smoke** for a silent health
+   probe (Telegram only if it fails). Cron and **full** always run that probe
+   first; on failure a **CRITICAL** alert is sent and the large collect is
+   skipped. Missed days are not dropped: the next successful collect publishes
+   all unseen matches and labels a catch-up if the last success was 2+ days ago.
 
 The first daily run seeds ~1,000 Grad Zagreb list rows into SQLite so they
 are not mistaken for "new today". Later days only fetch unseen `WebSifra`s
