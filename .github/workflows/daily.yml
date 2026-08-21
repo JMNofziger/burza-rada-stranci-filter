@@ -86,7 +86,8 @@ jobs:
       - name: Run daily pipeline
         run: python main.py daily
       - name: Persist state DB and jobs board
-        run: bash .github/scripts/persist-state.sh "chore: update job state DB [skip ci]"
+        run: |
+          bash .github/scripts/persist-state.sh "chore: update job state DB [skip ci]"
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload Pages artifact
