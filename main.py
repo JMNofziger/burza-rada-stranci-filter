@@ -71,11 +71,24 @@ def get_telegram_creds() -> tuple[str, str]:
 
 def collect_and_score(session, store: StateStore, skip_seen: bool) -> list:
     """Shared scrape+score step for both bootstrap and daily runs."""
+    if config.IS_SMOKE or config.MAX_CATEGORIES or config.MAX_LISTINGS:
+        log.info(
+            "Limited collect: smoke=%s max_categories=%s max_listings=%s db=%s",
+            config.IS_SMOKE,
+            config.MAX_CATEGORIES or "all",
+            config.MAX_LISTINGS or "all",
+            config.DB_PATH,
+        )
     results = []
+    fetched = 0
     for candidate in iter_zagreb_candidates(session):
         if skip_seen and store.is_seen(candidate.web_sifra):
             continue
+        if config.MAX_LISTINGS and fetched >= config.MAX_LISTINGS:
+            log.info("Hit HZZ_MAX_LISTINGS=%d; stopping collect.", config.MAX_LISTINGS)
+            break
         detailed = fetch_detail(session, candidate)
+        fetched += 1
         if detailed is None:
             continue  # already logged inside fetch_detail
         full_text = f"{detailed.title} {detailed.employer} {detailed.description}"
@@ -88,6 +101,10 @@ def collect_and_score(session, store: StateStore, skip_seen: bool) -> list:
         if detailed.foreign_score >= config.FOREIGN_SCORE_THRESHOLD and detailed.location_score > 0:
             results.append(detailed)
     return results
+
+
+def _telegram_label(text: str) -> str:
+    return f"SMOKE TEST — {text}" if config.IS_SMOKE else text
 
 
 def seed_backlog(listings: list, store: StateStore) -> dict[int, list]:
@@ -126,7 +143,9 @@ def run_daily() -> None:
             listings = collect_and_score(session, store, skip_seen=False)
             log.info("Initial seed: %d matching Zagreb listings.", len(listings))
             seed_backlog(listings, store)
-            notify.send_new_matches_report(token, chat_id, [])
+            notify.send_new_matches_report(
+                token, chat_id, [], title=_telegram_label("New listings")
+            )
             _publish_next_backlog_day(store, token, chat_id)
             removed = store.prune_expired()
             if removed:
@@ -141,7 +160,9 @@ def run_daily() -> None:
         if should_publish_new_matches():
             rows = store.unnotified_new_matches()
             if rows or config.NOTIFY_WHEN_NO_NEW_MATCHES:
-                notify.send_new_matches_report(token, chat_id, rows)
+                notify.send_new_matches_report(
+                    token, chat_id, rows, title=_telegram_label("New listings")
+                )
             for row in rows:
                 store.mark_notified(row["web_sifra"])
         else:
@@ -167,7 +188,7 @@ def _publish_next_backlog_day(store: StateStore, token: str, chat_id: str) -> No
     if not rows:
         return
     notify.send_telegram_digest(
-        token, chat_id, f"Existing listings — day {today_bucket_day}", rows
+        token, chat_id, _telegram_label(f"Existing listings — day {today_bucket_day}"), rows
     )
     for row in rows:
         store.mark_notified(row["web_sifra"])

@@ -30,8 +30,10 @@ MAX_RETRIES = 3
 RETRY_BACKOFF_FACTOR = 1.5
 LIST_PAGE_SIZE = "75"              # site options: 10, 25, 50, 75
 MAX_PAGES_PER_CATEGORY = 20        # safety cap; largest Grad Zagreb category is ~230 jobs
-# Optional smoke-test limiter (unset or 0 = all occupation categories).
+# Optional smoke-test limiters (unset or 0 = no limit / all categories).
 MAX_CATEGORIES = int(os.environ.get("HZZ_MAX_CATEGORIES") or "0")
+MAX_LISTINGS = int(os.environ.get("HZZ_MAX_LISTINGS") or "0")
+IS_SMOKE = (os.environ.get("HZZ_SMOKE") or "").strip().lower() in {"1", "true", "yes"}
 
 # County radio on the occupation-browse page.
 ZUPANIJA_FIELD = "ctl00$MainContent$rblZupanija"
@@ -44,7 +46,7 @@ PAGE_SIZE_FIELD = "ctl00$MainContent$ddlPageSize"
 # Storage / delivery
 # ---------------------------------------------------------------------------
 DATA_DIR = Path("data")
-DB_PATH = DATA_DIR / "hzz_jobs.sqlite3"
+DB_PATH = Path(os.environ.get("HZZ_DB_PATH") or (DATA_DIR / "hzz_jobs.sqlite3"))
 
 TELEGRAM_ENV_TOKEN = "TELEGRAM_BOT_TOKEN"
 TELEGRAM_ENV_CHAT_ID = "TELEGRAM_CHAT_ID"
