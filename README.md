@@ -334,7 +334,8 @@ header; search, sort, and listing count live in the main column. Unchecked
 expiry or location (or employer) means **all listings**. The **N of M listings**
 count sits above the cards. Nav has an **EN/HR** control (English translates
 card titles and searches them), a sun/moon theme toggle (**dark is default**),
-and a **Method** page that explains inclusion rules. Tapping a card opens the
+and a **Method** page that explains inclusion rules, including the weighted
+foreigner-score lexicon. Tapping a card opens the
 HZZ detail URL.
 
 The board lists **matching `jobs`** after a successful collect. It refreshes

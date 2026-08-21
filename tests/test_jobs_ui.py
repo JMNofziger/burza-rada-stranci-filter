@@ -281,6 +281,28 @@ class PublicBoardStaticTests(unittest.TestCase):
         self.assertIn("IS_BOARD", self.js)
         self.assertIn('Boolean($("results"))', self.js)
 
+    def test_method_page_documents_foreigner_score_lexicon(self):
+        import config
+
+        self.assertIn("Weight 3", self.method)
+        self.assertIn("Weight 2", self.method)
+        self.assertIn("Weight 1", self.method)
+        self.assertIn("Težina 3", self.method)
+        self.assertIn("Težina 2", self.method)
+        self.assertIn("Težina 1", self.method)
+        self.assertIn("radna dozvola", self.method)
+        self.assertIn("strani državljani", self.method)
+        self.assertIn("NEGATION_WINDOW_CHARS = 25", self.method)
+        self.assertIn("FOREIGN_SCORE_THRESHOLD = 2", self.method)
+        self.assertIn("isključivo eu", self.method)
+        self.assertIn("samo eu državljani", self.method)
+        for phrase in config.FOREIGNER_KEYWORDS:
+            self.assertIn(f"<code>{phrase}</code>", self.method)
+        for marker in config.NEGATION_MARKERS:
+            self.assertIn(f"<code>{marker}</code>", self.method)
+        self.assertGreaterEqual(self.method.count("radna dozvola"), 2)
+        self.assertGreaterEqual(self.method.count("strani državljani"), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

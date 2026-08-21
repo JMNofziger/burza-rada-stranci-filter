@@ -55,9 +55,68 @@
       <ol>
         <li><strong>County.</strong> Grad Zagreb radio value <code>4</code>. Occupation categories are walked one by one; “Svi poslovi” is capped at 300 rows.</li>
         <li><strong>Location.</strong> <code>location_score &gt; 0</code> (2 = city centre, 1 = Zagreb, 0 = drop).</li>
-        <li><strong>Foreigner score.</strong> Weighted phrases in title + employer + detail. <code>FOREIGN_SCORE_THRESHOLD = 2</code>. Weights 3 / 2 / 1 (e.g. <code>radna dozvola</code> 3, <code>državljani trećih zemalja</code> 3, <code>strani državljani</code> 2). A single weight-1 phrase is not enough. Hits inside a short window after negation markers (<code>ne </code>, <code>nije </code>, <code>nema </code>, <code>bez </code>, <code>isključivo eu</code>, <code>samo eu državljani</code>) are discarded.</li>
+        <li><strong>Foreigner score.</strong> Weighted phrases in title + employer + detail. Shown only if score ≥ <code>FOREIGN_SCORE_THRESHOLD</code> (2). Details below.</li>
       </ol>
       <p>Other counties are not scraped. Inspected non-matches are not shown.</p>
+
+      <h2 id="foreigner-score">Foreigner score</h2>
+      <p>This is the only filter beyond scraping Grad Zagreb HZZ ads. It is a weighted substring score over public listing copy. It is not a work-permit or sponsorship guarantee.</p>
+
+      <p><strong>Fields.</strong> Concatenated <code>title</code> + <code>employer</code> + detail <code>description</code>. Location, occupation category, and URLs are not scanned.</p>
+      <p><strong>Threshold.</strong> Exact hits add their lexicon weight. Score ≥ <code>FOREIGN_SCORE_THRESHOLD = 2</code> is required to appear. Ads below 2 are fetched and inspected, then omitted from the board.</p>
+      <p><strong>Counting.</strong> Each lexicon string is matched once (<code>str.find</code> on NFC-normalized, casefolded text). Repeating the same string does not add weight again. Distinct inflections are separate entries and can both count (e.g. <code>radna dozvola</code> and <code>radnu dozvolu</code>). A longer hit can also fire a shorter entry that is a substring of it.</p>
+      <p><strong>Negation.</strong> A hit is discarded if any marker appears in the 25 characters immediately before it (<code>NEGATION_WINDOW_CHARS = 25</code> in <code>scoring.py</code>): <code>ne </code>, <code>nije </code>, <code>nema </code>, <code>bez </code>, <code>isključivo eu</code>, <code>samo eu državljani</code>. Markers after the phrase are not checked. Examples that drop: “nema radne dozvole”, “samo EU državljani”.</p>
+      <p><strong>Fuzzy fallback.</strong> If exact matching totals 0 and <code>rapidfuzz</code> is installed, near-inflections (<code>partial_ratio ≥ 90</code>) each add <code>FUZZY_WEIGHT</code> 1. Fuzzy hits skip the negation window. A single fuzzy hit is not enough.</p>
+
+      <h3>Weight 3 — permit and third-country legal wording</h3>
+      <p>One hit includes the ad (3 ≥ 2). These are statutory labels for residence-and-work permits, work permits, obtaining a permit, and third-country nationals. They are a keep signal because HZZ copy uses them when the vacancy is aimed at people who need a Croatian permit — not EU free movement.</p>
+      <p class="intent">Permit / obtaining a permit</p>
+      <ul class="phrases">
+        <li><code>dozvola za boravak i rad</code></li>
+        <li><code>dozvolu za boravak i rad</code></li>
+        <li><code>dozvole za boravak i rad</code></li>
+        <li><code>radna dozvola</code></li>
+        <li><code>radnu dozvolu</code></li>
+        <li><code>radne dozvole</code></li>
+        <li><code>ishođenje dozvole</code></li>
+        <li><code>ishođenje radne dozvole</code></li>
+      </ul>
+      <p class="intent">Third-country nationals</p>
+      <ul class="phrases">
+        <li><code>državljani trećih zemalja</code></li>
+        <li><code>državljanima trećih zemalja</code></li>
+        <li><code>državljana trećih zemalja</code></li>
+      </ul>
+
+      <h3>Weight 2 — foreign-national and sponsorship language</h3>
+      <p>One hit includes the ad (2 ≥ 2). Weight is 2, not 3, because the wording is not third-country-specific: <code>strani državljani</code> can mean any non-Croatian national, including EU. Unlike weight 1, it does not need a second hit to reach the threshold.</p>
+      <p class="intent">Foreign nationals / labour</p>
+      <ul class="phrases">
+        <li><code>strani državljani</code></li>
+        <li><code>strane radnike</code></li>
+        <li><code>strani radnici</code></li>
+        <li><code>strana radna snaga</code></li>
+      </ul>
+      <p class="intent">Sponsorship / permit help</p>
+      <ul class="phrases">
+        <li><code>sponzorstvo</code></li>
+        <li><code>pomoć oko dozvole</code></li>
+        <li><code>posredovanje pri ishođenju</code></li>
+      </ul>
+
+      <h3>Weight 1 — weak corroboration</h3>
+      <p>One hit does not include the ad (1 &lt; 2). Accommodation and field-work phrasing often co-occur with non-local hiring, but also appear on domestic and English-language jobs. They count only combined with another weight-1 phrase or a weight-2/3 phrase.</p>
+      <p class="intent">Accommodation</p>
+      <ul class="phrases">
+        <li><code>osiguran smještaj</code></li>
+        <li><code>smještaj osiguran</code></li>
+        <li><code>smještaj obezbijeđen</code></li>
+        <li><code>besplatan smještaj</code></li>
+      </ul>
+      <p class="intent">Field work</p>
+      <ul class="phrases">
+        <li><code>terenski rad</code></li>
+      </ul>
 
       <h2>Retention</h2>
       <p>Dated ads: 3 calendar days after <code>deadline_date</code>. Open-ended ads: 90 days after first seen.</p>
@@ -78,9 +137,68 @@
       <ol>
         <li><strong>Županija.</strong> Grad Zagreb, radio vrijednost <code>4</code>. Kategorije zanimanja se prolaze pojedinačno; „Svi poslovi” ima gornju granicu od 300 redaka.</li>
         <li><strong>Lokacija.</strong> <code>location_score &gt; 0</code> (2 = centar grada, 1 = Zagreb, 0 = odbacivanje).</li>
-        <li><strong>Strani rezultat.</strong> Ponderirane fraze u naslovu + poslodavcu + opisu. <code>FOREIGN_SCORE_THRESHOLD = 2</code>. Težine 3 / 2 / 1 (npr. <code>radna dozvola</code> 3, <code>državljani trećih zemalja</code> 3, <code>strani državljani</code> 2). Jedna fraza težine 1 nije dovoljna. Pogoci u kratkom prozoru nakon oznaka negacije (<code>ne </code>, <code>nije </code>, <code>nema </code>, <code>bez </code>, <code>isključivo eu</code>, <code>samo eu državljani</code>) se odbacuju.</li>
+        <li><strong>Strani rezultat.</strong> Ponderirane fraze u naslovu + poslodavcu + opisu. Prikazuje se samo ako je rezultat ≥ <code>FOREIGN_SCORE_THRESHOLD</code> (2). Detalji niže.</li>
       </ol>
       <p>Druge županije se ne prikupljaju. Pregledani ne-pogoci se ne prikazuju.</p>
+
+      <h2 id="strani-rezultat">Strani rezultat</h2>
+      <p>Jedini filter uz prikupljanje oglasa HZZ-a za Grad Zagreb. To je ponderirani rezultat podnizova nad javnim tekstom oglasa. Nije jamstvo radne dozvole ni sponzorstva.</p>
+
+      <p><strong>Polja.</strong> Spojeni <code>title</code> + <code>employer</code> + opis s detaljne stranice (<code>description</code>). Lokacija, kategorija zanimanja i URL-ovi se ne pregledavaju.</p>
+      <p><strong>Prag.</strong> Točni pogoci zbrajaju težinu iz leksikona. Za prikaz treba rezultat ≥ <code>FOREIGN_SCORE_THRESHOLD = 2</code>. Oglasi ispod 2 se dohvaćaju i pregledavaju, zatim se izostavljaju s ploče.</p>
+      <p><strong>Brojanje.</strong> Svaki niz iz leksikona se poklapa jednom (<code>str.find</code> na NFC-normaliziranom, casefold tekstu). Ponavljanje istog niza ne dodaje težinu ponovno. Različiti padeži su zasebni unosi i mogu se oba zbrojiti (npr. <code>radna dozvola</code> i <code>radnu dozvolu</code>). Dulji pogodak može aktivirati i kraći unos koji je njegov podniz.</p>
+      <p><strong>Negacija.</strong> Pogodak se odbacuje ako se bilo koja oznaka pojavi u 25 znakova neposredno prije njega (<code>NEGATION_WINDOW_CHARS = 25</code> u <code>scoring.py</code>): <code>ne </code>, <code>nije </code>, <code>nema </code>, <code>bez </code>, <code>isključivo eu</code>, <code>samo eu državljani</code>. Oznake nakon fraze se ne provjeravaju. Primjeri koji padaju: „nema radne dozvole”, „samo EU državljani”.</p>
+      <p><strong>Fuzzy rezervni prolaz.</strong> Ako točno poklapanje zbroji 0 i <code>rapidfuzz</code> je instaliran, bliske infleksije (<code>partial_ratio ≥ 90</code>) svaka dodaju <code>FUZZY_WEIGHT</code> 1. Fuzzy pogoci ne prolaze prozor negacije. Jedan fuzzy pogodak nije dovoljan.</p>
+
+      <h3>Težina 3 — dozvola i pravni nazivi trećih zemalja</h3>
+      <p>Jedan pogodak uključuje oglas (3 ≥ 2). To su zakonski nazivi za dozvolu za boravak i rad, radnu dozvolu, ishođenje dozvole i državljane trećih zemalja. Signal za uključivanje jer HZZ tim formulacijama označava oglas namijenjen osobama kojima treba hrvatska dozvola — ne slobodno kretanje EU.</p>
+      <p class="intent">Dozvola / ishođenje dozvole</p>
+      <ul class="phrases">
+        <li><code>dozvola za boravak i rad</code></li>
+        <li><code>dozvolu za boravak i rad</code></li>
+        <li><code>dozvole za boravak i rad</code></li>
+        <li><code>radna dozvola</code></li>
+        <li><code>radnu dozvolu</code></li>
+        <li><code>radne dozvole</code></li>
+        <li><code>ishođenje dozvole</code></li>
+        <li><code>ishođenje radne dozvole</code></li>
+      </ul>
+      <p class="intent">Državljani trećih zemalja</p>
+      <ul class="phrases">
+        <li><code>državljani trećih zemalja</code></li>
+        <li><code>državljanima trećih zemalja</code></li>
+        <li><code>državljana trećih zemalja</code></li>
+      </ul>
+
+      <h3>Težina 2 — strani državljani i jezik sponzorstva</h3>
+      <p>Jedan pogodak uključuje oglas (2 ≥ 2). Težina je 2, ne 3, jer formulacija nije specifična za treće zemlje: <code>strani državljani</code> može značiti bilo kojeg nedržavljanina, uključujući EU. Za razliku od težine 1, ne treba drugi pogodak za prag.</p>
+      <p class="intent">Strani državljani / radna snaga</p>
+      <ul class="phrases">
+        <li><code>strani državljani</code></li>
+        <li><code>strane radnike</code></li>
+        <li><code>strani radnici</code></li>
+        <li><code>strana radna snaga</code></li>
+      </ul>
+      <p class="intent">Sponzorstvo / pomoć oko dozvole</p>
+      <ul class="phrases">
+        <li><code>sponzorstvo</code></li>
+        <li><code>pomoć oko dozvole</code></li>
+        <li><code>posredovanje pri ishođenju</code></li>
+      </ul>
+
+      <h3>Težina 1 — slaba potvrda</h3>
+      <p>Jedan pogodak ne uključuje oglas (1 &lt; 2). Formulacije o smještaju i terenskom radu često idu uz zapošljavanje nerezidenata, ali se pojavljuju i na domaćim i na engleskim oglasima. Broje se tek u kombinaciji s još jednom frazom težine 1 ili frazom težine 2/3.</p>
+      <p class="intent">Smještaj</p>
+      <ul class="phrases">
+        <li><code>osiguran smještaj</code></li>
+        <li><code>smještaj osiguran</code></li>
+        <li><code>smještaj obezbijeđen</code></li>
+        <li><code>besplatan smještaj</code></li>
+      </ul>
+      <p class="intent">Terenski rad</p>
+      <ul class="phrases">
+        <li><code>terenski rad</code></li>
+      </ul>
 
       <h2>Zadržavanje</h2>
       <p>Oglasi s rokom: 3 kalendarska dana nakon <code>deadline_date</code>. Oglasi bez roka: 90 dana od prvog viđenja.</p>
