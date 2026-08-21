@@ -10,8 +10,9 @@ pip install -r requirements.txt
 cp .env.example .env          # local secrets; never commit .env
 # edit .env: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID
 
-python main.py bootstrap   # one-time: queue existing matches into a 6-day review
-python main.py daily       # collect new matches (cron target)
+python main.py bootstrap      # one-time: queue existing matches into a 6-day review
+python main.py daily          # collect new matches (cron target)
+python main.py full-scrape --phase status   # resumable one-off complete scrape
 ```
 
 `.env` is gitignored. GitHub Actions uses repo secrets with the same names
@@ -56,6 +57,7 @@ Look for `"chat":{"id": 123456789`.
 |------|---------|
 | **daily** (main feature) | Scrape every day. Publish **only brand-new** filter matches. If none, send an explicit "no new ads" Telegram. |
 | **bootstrap** | One-time backlog: existing matches paced across 6 days so reviewing current posts is sane. `daily` sends the next bucket until that queue is empty. |
+| **full-scrape** | Manual complete Grad Zagreb pass, split into **list → details → notify** so a failure resumes from the last checkpoint instead of starting over. |
 
 Collection stays daily even if you later switch publishing to weekly
 (`NEW_MATCH_PUBLISH_CADENCE = "weekly"` in `config.py`). Expiry-soon
@@ -83,6 +85,44 @@ The first daily run seeds ~1,000 Grad Zagreb list rows into SQLite so they
 are not mistaken for "new today". Later days only fetch unseen `WebSifra`s
 and Telegram the new filter matches (or a zero notice). The SQLite state
 file is committed back to the repo so dedup survives ephemeral runners.
+Daily collect also records every listed `WebSifra` in `inspected`, including
+non-matches, so later runs do not re-fetch those detail pages.
+
+## Manual one-off full scrape
+
+Use this when you want every Grad Zagreb listing scored in one sitting (~1,000
+detail pages). It is **workflow_dispatch only** — not on the daily cron.
+
+Phases (each is restartable):
+
+1. **list** — walk occupation categories and record every `WebSifra` in
+   `inspected`. Finished categories are checkpointed per scrape run, so a
+   mid-walk failure skips them on retry.
+2. **details** — fetch + score pending inspected rows in batches (default 40).
+   Each batch is committed back to git. Failed fetches stay pending.
+3. **notify** — Telegram. If this is the first successful collect, matches are
+   seeded into the 6-day backlog (same as an empty-DB daily) instead of one
+   flood of "new" ads.
+
+```bash
+python main.py full-scrape --phase status
+python main.py full-scrape --phase list
+python main.py full-scrape --phase details --limit 40
+python main.py full-scrape --phase notify
+python main.py full-scrape --phase all          # local: remaining work end-to-end
+```
+
+On GitHub: **Actions → HZZ one-off full scrape → Run workflow**.
+
+| Input | Resume after a failure |
+|-------|------------------------|
+| `start_phase = all` | Default. List skips completed categories; details skip fetched ads. |
+| `start_phase = details` | List already saved; continue remaining detail pages. |
+| `start_phase = notify` | Details done; send Telegram / backlog only. |
+| `reset_list = true` | New occupation walk (use for a later complete re-scrape). |
+
+Smoke still runs first and stays silent unless it fails. Daily cron and this
+workflow share a concurrency group so they cannot clobber the SQLite file.
 
 ## Live site behaviour (verified 2026-08-21)
 

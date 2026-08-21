@@ -29,6 +29,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from collections.abc import Callable
 from typing import Iterator, Optional
 
 from bs4 import BeautifulSoup
@@ -73,6 +74,7 @@ class JobListing:
     foreign_score: int = 0
     matched_keywords: list = field(default_factory=list)
     location_score: int = 0
+    category_label: str = ""
 
 
 def parse_hr_date(raw: str) -> Optional[date]:
@@ -258,11 +260,19 @@ def _next_page_target(soup: BeautifulSoup) -> Optional[str]:
     return None
 
 
-def iter_zagreb_candidates(session) -> Iterator[JobListing]:
+def iter_zagreb_candidates(
+    session,
+    skip_category: Callable[[str, str], bool] | None = None,
+    on_category_complete: Callable[[str, str], None] | None = None,
+) -> Iterator[JobListing]:
     """
     Filter server-side to Grad Zagreb, walk each occupation category (avoids
     the 300-row "Svi poslovi" cap), and yield every listing. Callers still
     need fetch_detail() to score foreign-friendliness.
+
+    skip_category(event_target, label) -> True skips a finished occupation
+    group so a resumed full-scrape list walk does not re-paginate it.
+    on_category_complete is invoked only after every page of that group.
     """
     soup = warm_up(session)
     county_target, county_value = _grad_zagreb_postback(soup)
@@ -286,7 +296,12 @@ def iter_zagreb_candidates(session) -> Iterator[JobListing]:
 
     browse_soup = soup
     seen: set[str] = set()
+    skipped = 0
     for event_target, listed_count, label in categories:
+        if skip_category and skip_category(event_target, label):
+            skipped += 1
+            log.info("Skipping completed category %s", label)
+            continue
         log.info("Category %s (listed %d)", label, listed_count)
         # Always post back from the county-filtered browse snapshot so category
         # LinkButtons are present. Listing pages do not contain them.
@@ -303,6 +318,7 @@ def iter_zagreb_candidates(session) -> Iterator[JobListing]:
                 if listing.web_sifra in seen:
                     continue
                 seen.add(listing.web_sifra)
+                listing.category_label = label
                 yield listing
             next_target = _next_page_target(soup)
             if not next_target:
@@ -316,4 +332,10 @@ def iter_zagreb_candidates(session) -> Iterator[JobListing]:
                     config.MAX_PAGES_PER_CATEGORY,
                     label,
                 )
-    log.info("List crawl finished: %d unique Grad Zagreb WebSifra values.", len(seen))
+        if on_category_complete:
+            on_category_complete(event_target, label)
+    log.info(
+        "List crawl finished: %d unique Grad Zagreb WebSifra values (%d categories skipped).",
+        len(seen),
+        skipped,
+    )

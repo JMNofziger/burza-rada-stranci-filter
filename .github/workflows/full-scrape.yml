@@ -1,0 +1,163 @@
+name: HZZ one-off full scrape
+
+permissions:
+  contents: write
+
+# Manual complete Grad Zagreb scrape. Not on the daily cron.
+# Checkpoints SQLite after the list walk and after every details batch so a
+# failed/timed-out run can be re-dispatched at `details` or `notify` without
+# re-fetching finished work.
+on:
+  workflow_dispatch:
+    inputs:
+      start_phase:
+        description: "Where to start. all = remaining work from checkpoints. details/notify skip earlier phases."
+        type: choice
+        options:
+          - all
+          - list
+          - details
+          - notify
+        default: all
+      detail_batch_size:
+        description: "Detail pages per git checkpoint (smaller = less lost work on failure)"
+        type: string
+        default: "40"
+      reset_list:
+        description: "Start a new occupation-category walk (ignore leftover list checkpoints)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: hzz-pipeline
+  cancel-in-progress: false
+
+env:
+  TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+  TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+jobs:
+  smoke:
+    name: Smoke scrape
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Check Telegram secrets
+        run: python main.py telegram-check
+      - name: Live smoke scrape
+        env:
+          HZZ_MAX_CATEGORIES: "1"
+          HZZ_MAX_LISTINGS: "5"
+        run: python main.py smoke
+
+  alert-smoke:
+    name: Critical alert (smoke failed)
+    needs: smoke
+    if: failure()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Send critical Telegram alert
+        run: python main.py alert-critical "Full scrape aborted: smoke probe failed."
+
+  scrape:
+    name: Resumable full scrape
+    needs: smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run phased scrape with checkpoints
+        env:
+          START_PHASE: ${{ github.event.inputs.start_phase }}
+          BATCH: ${{ github.event.inputs.detail_batch_size }}
+          RESET_LIST: ${{ github.event.inputs.reset_list }}
+        run: |
+          set -euo pipefail
+          git config user.name "hzz-digest-bot"
+          git config user.email "actions@users.noreply.github.com"
+
+          persist_db() {
+            local msg="$1"
+            if [ ! -f data/hzz_jobs.sqlite3 ]; then
+              echo "No state DB; skip persist ($msg)"
+              return 0
+            fi
+            git add data/hzz_jobs.sqlite3
+            if git diff --cached --quiet; then
+              echo "No SQLite changes to persist ($msg)"
+              return 0
+            fi
+            git commit -m "$msg"
+            git push
+          }
+
+          PHASE="${START_PHASE:-all}"
+          BATCH="${BATCH:-40}"
+          if ! [ "$BATCH" -gt 0 ] 2>/dev/null; then
+            echo "detail_batch_size must be a positive integer, got: $BATCH" >&2
+            exit 1
+          fi
+
+          if [ "$PHASE" = "all" ] || [ "$PHASE" = "list" ]; then
+            if [ "$RESET_LIST" = "true" ]; then
+              python main.py full-scrape --phase list --reset-list
+            else
+              python main.py full-scrape --phase list
+            fi
+            persist_db "chore: full-scrape list checkpoint [skip ci]"
+          fi
+
+          if [ "$PHASE" = "all" ] || [ "$PHASE" = "details" ]; then
+            while true; do
+              python main.py full-scrape --phase status > /tmp/fs-status.json
+              pending=$(python -c "import json; print(json.load(open('/tmp/fs-status.json'))['details_pending'])")
+              echo "details_pending=$pending"
+              python -c "import json; print(json.dumps(json.load(open('/tmp/fs-status.json')), indent=2))"
+              if [ "$pending" -eq 0 ]; then
+                break
+              fi
+              python main.py full-scrape --phase details --limit "$BATCH"
+              persist_db "chore: full-scrape details batch [skip ci]"
+            done
+          fi
+
+          if [ "$PHASE" = "all" ] || [ "$PHASE" = "notify" ]; then
+            python main.py full-scrape --phase notify
+            persist_db "chore: full-scrape notify [skip ci]"
+          fi
+
+          python main.py full-scrape --phase status
+
+  alert-scrape:
+    name: Critical alert (full scrape failed)
+    needs: scrape
+    if: failure()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Send critical Telegram alert
+        run: python main.py alert-critical "One-off full scrape failed. Re-run the workflow from the suggested phase (details or notify) to resume from the last SQLite checkpoint."

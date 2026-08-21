@@ -23,7 +23,7 @@ on:
         default: smoke
 
 concurrency:
-  group: hzz-daily
+  group: hzz-pipeline
   cancel-in-progress: false
 
 env:

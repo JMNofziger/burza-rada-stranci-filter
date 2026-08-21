@@ -1,9 +1,10 @@
 """
 main.py
-CLI entrypoint. Two subcommands:
+CLI entrypoint.
 
-    python main.py bootstrap   # one-time: queue existing matches into a 6-day review
-    python main.py daily       # cron target: collect new matches every day, publish them
+    python main.py bootstrap      # one-time: queue existing matches into a 6-day review
+    python main.py daily          # cron target: collect new matches every day, publish them
+    python main.py full-scrape    # resumable one-off complete scrape (see --phase)
 
 Wrapped in a top-level try/except so a cron-triggered failure logs a full
 traceback and exits non-zero (visible in GitHub Actions / cron mail) instead
@@ -13,6 +14,7 @@ of dying silently.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import sys
@@ -26,7 +28,7 @@ import digest
 import notify
 import scoring
 from http_client import build_session
-from scraper import fetch_detail, iter_zagreb_candidates
+from scraper import JobListing, fetch_detail, iter_zagreb_candidates, parse_hr_date
 from storage import StateStore
 
 log = logging.getLogger("hzz_pipeline")
@@ -69,6 +71,20 @@ def get_telegram_creds() -> tuple[str, str]:
     return token, chat_id
 
 
+def _apply_scores(detailed: JobListing) -> bool:
+    full_text = f"{detailed.title} {detailed.employer} {detailed.description}"
+    detailed.foreign_score, detailed.matched_keywords = scoring.score_foreign_friendly(full_text)
+    detailed.location_score = scoring.score_location(
+        detailed.location_raw,
+        detailed.description,
+        in_zagreb_county=True,
+    )
+    return (
+        detailed.foreign_score >= config.FOREIGN_SCORE_THRESHOLD
+        and detailed.location_score > 0
+    )
+
+
 def collect_and_score(session, store: StateStore, skip_seen: bool) -> list:
     """Shared scrape+score step for both bootstrap and daily runs."""
     if config.IS_SMOKE or config.MAX_CATEGORIES or config.MAX_LISTINGS:
@@ -82,7 +98,13 @@ def collect_and_score(session, store: StateStore, skip_seen: bool) -> list:
     results = []
     fetched = 0
     for candidate in iter_zagreb_candidates(session):
+        store.record_listing(candidate)
+        if store.is_detail_fetched(candidate.web_sifra):
+            continue
         if skip_seen and store.is_seen(candidate.web_sifra):
+            store.mark_detail_fetched(
+                candidate.web_sifra, matched=True, skip_reason="already_in_jobs"
+            )
             continue
         if config.MAX_LISTINGS and fetched >= config.MAX_LISTINGS:
             log.info("Hit HZZ_MAX_LISTINGS=%d; stopping collect.", config.MAX_LISTINGS)
@@ -90,15 +112,10 @@ def collect_and_score(session, store: StateStore, skip_seen: bool) -> list:
         detailed = fetch_detail(session, candidate)
         fetched += 1
         if detailed is None:
-            continue  # already logged inside fetch_detail
-        full_text = f"{detailed.title} {detailed.employer} {detailed.description}"
-        detailed.foreign_score, detailed.matched_keywords = scoring.score_foreign_friendly(full_text)
-        detailed.location_score = scoring.score_location(
-            detailed.location_raw,
-            detailed.description,
-            in_zagreb_county=True,
-        )
-        if detailed.foreign_score >= config.FOREIGN_SCORE_THRESHOLD and detailed.location_score > 0:
+            continue  # leave inspected.detail_fetched=0 so a later run retries
+        matched = _apply_scores(detailed)
+        store.mark_detail_fetched(detailed.web_sifra, matched=matched)
+        if matched:
             results.append(detailed)
     return results
 
@@ -292,15 +309,258 @@ def run_telegram_check() -> None:
     )
 
 
+def job_row_to_listing(row) -> JobListing:
+    deadline = date.fromisoformat(row["deadline_date"]) if row["deadline_date"] else None
+    keywords = [k for k in (row["matched_keywords"] or "").split(",") if k]
+    return JobListing(
+        web_sifra=row["web_sifra"],
+        title=row["title"],
+        employer=row["employer"] or "",
+        location_raw=row["location_raw"] or "",
+        deadline_raw="",
+        detail_url=row["detail_url"] or "",
+        deadline_date=deadline,
+        foreign_score=row["foreign_score"] or 0,
+        location_score=row["location_score"] or 0,
+        matched_keywords=keywords,
+    )
+
+
+def inspected_row_to_listing(row) -> JobListing:
+    listing = JobListing(
+        web_sifra=row["web_sifra"],
+        title=row["title"] or "",
+        employer=row["employer"] or "",
+        location_raw=row["location_raw"] or "",
+        deadline_raw=row["deadline_raw"] or "",
+        detail_url=row["detail_url"]
+        or config.DETAIL_URL_TEMPLATE.format(web_sifra=row["web_sifra"]),
+        category_label=row["category_label"] or "",
+    )
+    listing.deadline_date = parse_hr_date(listing.deadline_raw)
+    return listing
+
+
+def resolve_scrape_run(store: StateStore, reset_list: bool = False) -> int:
+    latest = store.latest_scrape_run()
+    if reset_list or latest is None:
+        run_id = store.start_scrape_run()
+        log.info("Started scrape run %s (reset_list=%s).", run_id, reset_list)
+        return run_id
+    if latest["notify_completed_at"]:
+        run_id = store.start_scrape_run()
+        log.info(
+            "Previous scrape run %s already finished; started run %s.",
+            latest["id"],
+            run_id,
+        )
+        return run_id
+    log.info("Resuming scrape run %s.", latest["id"])
+    return int(latest["id"])
+
+
+def full_scrape_status_dict(store: StateStore) -> dict:
+    run = store.latest_scrape_run()
+    list_complete = bool(run and run["list_completed_at"])
+    details_pending = store.count_pending_details()
+    unnotified = store.count_unnotified()
+    notify_complete = bool(run and run["notify_completed_at"])
+    if run is None or not list_complete:
+        suggested = "list"
+    elif details_pending > 0:
+        suggested = "details"
+    elif not notify_complete or unnotified > 0:
+        suggested = "notify"
+    else:
+        suggested = "done"
+    return {
+        "suggested_phase": suggested,
+        "open_run_id": int(run["id"]) if run else None,
+        "list_complete": list_complete,
+        "details_complete": bool(run and run["details_completed_at"]),
+        "notify_complete": notify_complete,
+        "categories_done": store.count_completed_categories(int(run["id"])) if run else 0,
+        "listings": store.count_inspected(),
+        "details_pending": details_pending,
+        "details_fetched": store.count_details_fetched(),
+        "jobs": store.count_jobs(),
+        "unnotified": unnotified,
+    }
+
+
+def run_full_scrape_status() -> dict:
+    with StateStore() as store:
+        status = full_scrape_status_dict(store)
+    print(json.dumps(status, sort_keys=True))
+    return status
+
+
+def run_full_scrape_list(reset_list: bool = False) -> None:
+    with StateStore() as store:
+        run_id = resolve_scrape_run(store, reset_list=reset_list)
+        run = store.get_scrape_run(run_id)
+        if run and run["list_completed_at"] and not reset_list:
+            log.info("List phase already complete for scrape run %s.", run_id)
+            return
+        session = build_session()
+        recorded = 0
+
+        def skip_category(event_target: str, label: str) -> bool:
+            return store.is_category_complete(run_id, event_target)
+
+        def on_complete(event_target: str, label: str) -> None:
+            store.mark_category_complete(run_id, event_target, label)
+            log.info("Checkpoint: category complete: %s", label)
+
+        for listing in iter_zagreb_candidates(
+            session,
+            skip_category=skip_category,
+            on_category_complete=on_complete,
+        ):
+            store.record_listing(listing)
+            recorded += 1
+        cats_done = store.count_completed_categories(run_id)
+        if recorded == 0 and cats_done == 0:
+            raise RuntimeError(
+                "List phase recorded 0 listings and finished 0 occupation categories. "
+                "Site markup or session likely broke; not marking list complete."
+            )
+        store.mark_run_list_complete(run_id)
+        log.info(
+            "List phase done for run %s: recorded %d listings this walk, %d inspected total.",
+            run_id,
+            recorded,
+            store.count_inspected(),
+        )
+
+
+def run_full_scrape_details(limit: int = 0) -> int:
+    session = build_session()
+    fetched = 0
+    matched_n = 0
+    with StateStore() as store:
+        pending = store.pending_inspected(limit if limit and limit > 0 else None)
+        log.info("Details phase: %d pending listings in this batch.", len(pending))
+        for row in pending:
+            listing = inspected_row_to_listing(row)
+            detailed = fetch_detail(session, listing)
+            if detailed is None:
+                continue
+            fetched += 1
+            matched = _apply_scores(detailed)
+            store.mark_detail_fetched(detailed.web_sifra, matched=matched)
+            if matched:
+                store.upsert_job(detailed, digest_day=None)
+                matched_n += 1
+        remaining = store.count_pending_details()
+        if remaining == 0:
+            run = store.latest_scrape_run()
+            if run and not run["notify_completed_at"]:
+                store.mark_run_details_complete(int(run["id"]))
+        log.info(
+            "Details batch done: fetched=%d matched=%d remaining_pending=%d.",
+            fetched,
+            matched_n,
+            remaining,
+        )
+    return fetched
+
+
+def run_full_scrape_notify() -> None:
+    token, chat_id = get_telegram_creds()
+    with StateStore() as store:
+        never_collected = store.get_meta("last_successful_collect_on") is None
+        if never_collected:
+            rows = store.all_unnotified_jobs()
+            if rows:
+                listings = [job_row_to_listing(r) for r in rows]
+                log.info(
+                    "First fill: seeding %d matches into a 6-day backlog instead of one Telegram flood.",
+                    len(listings),
+                )
+                seed_backlog(listings, store)
+            notify.send_new_matches_report(
+                token, chat_id, [], title=_new_listings_title(store)
+            )
+            _publish_next_backlog_day(store, token, chat_id)
+        else:
+            if should_publish_new_matches():
+                rows = store.unnotified_new_matches()
+                if rows or config.NOTIFY_WHEN_NO_NEW_MATCHES:
+                    notify.send_new_matches_report(
+                        token, chat_id, rows, title=_new_listings_title(store)
+                    )
+                for row in rows:
+                    store.mark_notified(row["web_sifra"])
+            _publish_next_backlog_day(store, token, chat_id)
+        _finish_successful_collect(store)
+        store.mark_full_scrape_success()
+        run = store.latest_scrape_run()
+        if run:
+            store.mark_run_notify_complete(int(run["id"]))
+        log.info("Notify phase complete.")
+
+
+def run_full_scrape(phase: str, limit: int = 0, reset_list: bool = False) -> None:
+    if phase == "status":
+        run_full_scrape_status()
+        return
+    if phase == "list":
+        run_full_scrape_list(reset_list=reset_list)
+        return
+    if phase == "details":
+        run_full_scrape_details(limit=limit)
+        return
+    if phase == "notify":
+        run_full_scrape_notify()
+        return
+    if phase != "all":
+        raise ValueError(f"Unknown full-scrape phase: {phase}")
+    run_full_scrape_list(reset_list=reset_list)
+    while True:
+        with StateStore() as store:
+            pending = store.count_pending_details()
+        if pending <= 0:
+            break
+        batch = limit if limit and limit > 0 else pending
+        run_full_scrape_details(limit=batch)
+    run_full_scrape_notify()
+
+
 def main() -> None:
     setup_logging()
     load_local_secrets()
     parser = argparse.ArgumentParser(description="HZZ Zagreb foreign-friendly job digest")
     parser.add_argument(
         "mode",
-        choices=["bootstrap", "daily", "chat-id", "telegram-check", "smoke", "alert-critical"],
+        choices=[
+            "bootstrap",
+            "daily",
+            "chat-id",
+            "telegram-check",
+            "smoke",
+            "alert-critical",
+            "full-scrape",
+        ],
     )
     parser.add_argument("message", nargs="?", default="", help="Alert body for alert-critical")
+    parser.add_argument(
+        "--phase",
+        default="status",
+        choices=["all", "list", "details", "notify", "status"],
+        help="full-scrape phase (default: status)",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=0,
+        help="full-scrape details: max listings this batch (0 = all remaining)",
+    )
+    parser.add_argument(
+        "--reset-list",
+        action="store_true",
+        help="full-scrape list: start a new occupation walk, ignoring leftover category checkpoints",
+    )
     args = parser.parse_args()
 
     try:
@@ -314,6 +574,8 @@ def main() -> None:
             run_smoke()
         elif args.mode == "alert-critical":
             run_alert_critical(args.message)
+        elif args.mode == "full-scrape":
+            run_full_scrape(args.phase, limit=args.limit, reset_list=args.reset_list)
         else:
             run_daily()
     except Exception:
