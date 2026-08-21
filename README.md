@@ -328,10 +328,13 @@ is the workflow input `detail_batch_size` → `--limit`, not an env var.
 Static site in `docs/` (GitHub Pages). Not a local server — there is no
 `serve` CLI. **Matching `jobs` only** — inspected non-matches are not listed.
 
-**Phone:** **Filters** opens a drawer (expiry window, location, employer,
-Telegram-sent). **Desktop:** same filters stay in a left sidebar. Search and
-sort (soonest expiry / newest / score / title) are in the header. Tapping a
-card opens the HZZ detail URL.
+**Phone:** **Filters** opens a drawer (expiry, location, employer,
+Telegram-sent). **Desktop:** same filters stay in a left sidebar. Unchecked
+expiry or location (or employer) means **all listings**. Search and sort sit
+in the header. The **N of M listings** count sits above the cards. Nav has
+an **EN/HR** control (English translates card titles and searches them) and a
+sun/moon theme toggle; **dark is default**. Tapping a card opens the HZZ
+detail URL.
 
 The board is empty until a successful collect writes matches. It refreshes
 when daily or full-scrape finishes and deploys Pages.
