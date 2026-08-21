@@ -155,6 +155,39 @@ class StorageNewMatchTests(unittest.TestCase):
         self.assertEqual(self.store.days_since_last_success(date(2026, 8, 21)), 2)
         self.assertEqual(self.store.days_since_last_success(date(2026, 8, 19)), 0)
 
+    def test_prune_keeps_jobs_for_three_days_after_deadline(self):
+        today = date(2026, 8, 21)
+        keep_open = self._listing("open")
+        keep_open.deadline_date = None
+        keep_recent = self._listing("expired-2d")
+        keep_recent.deadline_date = date(2026, 8, 19)  # 2 days ago
+        drop_on_day_3 = self._listing("expired-3d")
+        drop_on_day_3.deadline_date = date(2026, 8, 18)
+        drop_older = self._listing("expired-4d")
+        drop_older.deadline_date = date(2026, 8, 17)
+        for job in (keep_open, keep_recent, drop_on_day_3, drop_older):
+            self.store.upsert_job(job)
+
+        still_listed = self._listing("inspected-keep")
+        still_listed.deadline_raw = "19.8.2026."
+        stale = self._listing("inspected-drop")
+        stale.deadline_raw = "18.8.2026."
+        self.store.record_listing(still_listed)
+        self.store.record_listing(stale)
+
+        removed = self.store.prune_expired(before=today)
+        self.assertEqual(removed, 3)  # 2 jobs + 1 inspected
+        remaining_jobs = {
+            row["web_sifra"]
+            for row in self.store._conn.execute("SELECT web_sifra FROM jobs")
+        }
+        self.assertEqual(remaining_jobs, {"open", "expired-2d"})
+        remaining_inspected = {
+            row["web_sifra"]
+            for row in self.store._conn.execute("SELECT web_sifra FROM inspected")
+        }
+        self.assertEqual(remaining_inspected, {"inspected-keep"})
+
 
 if __name__ == "__main__":
     unittest.main()

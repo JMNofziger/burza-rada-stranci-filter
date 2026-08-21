@@ -136,7 +136,11 @@ def _finish_successful_collect(store: StateStore) -> None:
     store.mark_collect_success()
     removed = store.prune_expired()
     if removed:
-        log.info("Pruned %d expired listings from the state DB.", removed)
+        log.info(
+            "Pruned %d expired rows (jobs + inspected) after %d-day retention.",
+            removed,
+            config.EXPIRED_JOB_RETENTION_DAYS,
+        )
 
 
 def seed_backlog(listings: list, store: StateStore) -> dict[int, list]:

@@ -20,12 +20,15 @@ via GitHub Actions and commit the DB file back to the repo (see README).
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import config
+
+log = logging.getLogger(__name__)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -250,14 +253,55 @@ class StateStore:
         return cur.fetchall()
 
     def prune_expired(self, before: date | None = None) -> int:
-        """Drop rows whose deadline has passed, keeping the DB from growing forever."""
-        cutoff = (before or date.today()).isoformat()
+        """Delete jobs/inspected rows whose deadline is older than the retention window.
+
+        Retention is EXPIRED_JOB_RETENTION_DAYS after deadline_date (inclusive).
+        Open-ended rows (no deadline) are left in place.
+        """
+        from scraper import parse_hr_date
+
+        today = before or date.today()
+        cutoff = today - timedelta(days=config.EXPIRED_JOB_RETENTION_DAYS)
+        cutoff_iso = cutoff.isoformat()
         with self.transaction() as conn:
-            cur = conn.execute(
-                "DELETE FROM jobs WHERE deadline_date IS NOT NULL AND deadline_date < ?",
-                (cutoff,),
+            jobs_cur = conn.execute(
+                """
+                DELETE FROM jobs
+                WHERE deadline_date IS NOT NULL
+                  AND deadline_date <= ?
+                """,
+                (cutoff_iso,),
             )
-            return cur.rowcount
+            jobs_n = jobs_cur.rowcount
+
+        stale_inspected: list[str] = []
+        for row in self._conn.execute(
+            "SELECT web_sifra, deadline_raw FROM inspected"
+        ):
+            parsed = parse_hr_date(row["deadline_raw"] or "")
+            if parsed is not None and parsed <= cutoff:
+                stale_inspected.append(row["web_sifra"])
+        inspected_n = 0
+        if stale_inspected:
+            with self.transaction() as conn:
+                conn.executemany(
+                    "DELETE FROM inspected WHERE web_sifra = ?",
+                    [(sifra,) for sifra in stale_inspected],
+                )
+            inspected_n = len(stale_inspected)
+
+        removed = jobs_n + inspected_n
+        if removed:
+            self._conn.execute("VACUUM")
+            log.info(
+                "Pruned %d jobs and %d inspected rows with deadline on or before %s "
+                "(%d-day post-expiry retention).",
+                jobs_n,
+                inspected_n,
+                cutoff_iso,
+                config.EXPIRED_JOB_RETENTION_DAYS,
+            )
+        return removed
 
     def get_meta(self, key: str) -> str | None:
         cur = self._conn.execute("SELECT value FROM meta WHERE key = ?", (key,))

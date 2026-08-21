@@ -65,6 +65,9 @@ NEW_MATCH_PUBLISH_CADENCE = "daily"  # "daily" | "weekly"
 NEW_MATCH_PUBLISH_WEEKDAY = 0        # Monday=0; used only when cadence is weekly
 NOTIFY_WHEN_NO_NEW_MATCHES = True
 URGENT_WITHIN_HOURS = 48             # reserved for a later expiry-soon notice
+# Keep expired ads this many calendar days after deadline_date, then delete.
+# 3 = gone on the morning of day 4. Open-ended ads (no deadline) are not pruned.
+EXPIRED_JOB_RETENTION_DAYS = 3
 
 # ---------------------------------------------------------------------------
 # Foreign-worker-friendliness keyword lexicon (weighted, not boolean)
