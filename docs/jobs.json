@@ -1,6 +1,42 @@
 {
   "jobs": [
     {
+      "web_sifra": "165072635",
+      "title": "2. ZA IZBOR I ZASNIVANJE RADNOG ODNOSA NA KATEDRI ZA ZDRAVSTVENU NJEGU: 2.1. NA NASTAVNO RADNO MJESTO VIŠEG / E PREDAVAČA / ICE",
+      "employer": "Zdravstveno veleučilište",
+      "location_raw": "ZAGREB",
+      "location_score": 2,
+      "location_label": "City centre",
+      "deadline_date": "2026-08-21",
+      "days_until_deadline": 0,
+      "urgency": "48h",
+      "foreign_score": 2,
+      "matched_keywords": "strani državljani",
+      "detail_url": "https://burzarada.hzz.hr/RadnoMjesto_Ispis.aspx?WebSifra=165072635&AspxAutoDetectCookieSupport=1",
+      "first_seen_at": "2026-08-21T14:35:49",
+      "digest_day": null,
+      "notified_at": null,
+      "notified": false
+    },
+    {
+      "web_sifra": "165072807",
+      "title": "3. ZA IZBOR I ZASNIVANJE RADNOG ODNOSA NA KATEDRI ZA INTERNU MEDICINU I KLINIČKU FARMAKOLOGIJU: 3.1. NA NASTAVNO RADNO MJESTO PREDAVAČA / ICE",
+      "employer": "Zdravstveno veleučilište",
+      "location_raw": "ZAGREB",
+      "location_score": 2,
+      "location_label": "City centre",
+      "deadline_date": "2026-08-21",
+      "days_until_deadline": 0,
+      "urgency": "48h",
+      "foreign_score": 2,
+      "matched_keywords": "strani državljani",
+      "detail_url": "https://burzarada.hzz.hr/RadnoMjesto_Ispis.aspx?WebSifra=165072807&AspxAutoDetectCookieSupport=1",
+      "first_seen_at": "2026-08-21T14:35:51",
+      "digest_day": null,
+      "notified_at": null,
+      "notified": false
+    },
+    {
       "web_sifra": "165096069",
       "title": "DOCENT / ICA",
       "employer": "SVEUČILIŠTE U ZAGREBU MUZIČKA AKADEMIJA",
@@ -19,5 +55,5 @@
       "notified": false
     }
   ],
-  "generated_at": "2026-08-21T14:35:34Z"
+  "generated_at": "2026-08-21T14:36:27Z"
 }
