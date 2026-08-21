@@ -72,6 +72,22 @@ class StateStore:
         )
         return cur.fetchone() is not None
 
+    def is_empty(self) -> bool:
+        cur = self._conn.execute("SELECT 1 FROM jobs LIMIT 1")
+        return cur.fetchone() is None
+
+    def unnotified_new_matches(self) -> list[sqlite3.Row]:
+        """Jobs discovered after bootstrap (digest_day IS NULL) and not yet published."""
+        cur = self._conn.execute(
+            """
+            SELECT * FROM jobs
+            WHERE notified_at IS NULL
+              AND digest_day IS NULL
+            ORDER BY deadline_date IS NULL, deadline_date
+            """
+        )
+        return cur.fetchall()
+
     @contextmanager
     def transaction(self):
         try:

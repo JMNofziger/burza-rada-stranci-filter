@@ -17,6 +17,7 @@ import requests
 log = logging.getLogger(__name__)
 
 TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
+TELEGRAM_UPDATES_API = "https://api.telegram.org/bot{token}/getUpdates"
 MAX_MESSAGE_CHARS = 3500  # stay comfortably under Telegram's 4096 hard limit
 
 _MD_ESCAPE_CHARS = r"_*[]()~`>#+-=|{}.!"
@@ -27,17 +28,33 @@ def escape_markdown_v2(text: str) -> str:
 
 
 def format_job_line(job) -> str:
+    job = as_job_dict(job)
     title = escape_markdown_v2(job["title"])
     employer = escape_markdown_v2(job["employer"] or "N/A")
-    deadline = escape_markdown_v2(job["deadline_date"] or "otvoreno")
-    badge = "🏙️ Centar" if job["location_score"] == 2 else "Zagreb"
+    deadline = escape_markdown_v2(job["deadline_date"] or "open")
+    badge = "City centre" if job["location_score"] == 2 else "Zagreb"
     url = job["detail_url"]
-    return f"*{title}*\n{employer} · {badge} · rok: {deadline}\n[Otvori oglas]({url})"
+    return f"*{title}*\n{employer} · {badge} · deadline: {deadline}\n[Open listing]({url})"
+
+
+def as_job_dict(job) -> dict:
+    if hasattr(job, "keys") and not isinstance(job, dict):
+        job = dict(job)
+    if isinstance(job, dict):
+        return job
+    deadline = getattr(job, "deadline_date", None)
+    return {
+        "title": job.title,
+        "employer": job.employer,
+        "deadline_date": deadline.isoformat() if deadline else None,
+        "location_score": job.location_score,
+        "detail_url": job.detail_url,
+    }
 
 
 def build_digest_message(day_label: str, jobs: list) -> list[str]:
     """Return one or more message chunks (Telegram has a per-message length cap)."""
-    header = f"*{escape_markdown_v2(day_label)}* — {len(jobs)} oglasa\n\n"
+    header = f"*{escape_markdown_v2(day_label)}* — {len(jobs)} listings\n\n"
     chunks, current = [], header
     for job in jobs:
         line = format_job_line(job) + "\n\n"
@@ -48,6 +65,22 @@ def build_digest_message(day_label: str, jobs: list) -> list[str]:
     if current:
         chunks.append(current)
     return chunks
+
+
+def build_zero_new_matches_message() -> str:
+    return (
+        "*New listings*\n\n"
+        "No new listings matched the filter today\\."
+    )
+
+
+def send_new_matches_report(token: str, chat_id: str, jobs: list) -> None:
+    """Publish today's (or accumulated) new filter matches, or an explicit zero notice."""
+    if not jobs:
+        log.info("No new filter matches — sending zero notice.")
+        _send_with_retry(token, chat_id, build_zero_new_matches_message())
+        return
+    send_telegram_digest(token, chat_id, "New listings", jobs)
 
 
 def send_telegram_digest(token: str, chat_id: str, day_label: str, jobs: list) -> None:
@@ -78,3 +111,25 @@ def _send_with_retry(token: str, chat_id: str, text: str, max_attempts: int = 3)
         log.error("Telegram send failed (%s): %s", resp.status_code, resp.text)
         resp.raise_for_status()
     raise RuntimeError(f"Telegram send failed after {max_attempts} attempts")
+
+
+def fetch_chat_ids(token: str) -> list[dict]:
+    """Return unique chats that have already messaged this bot."""
+    resp = requests.get(TELEGRAM_UPDATES_API.format(token=token), timeout=20)
+    resp.raise_for_status()
+    payload = resp.json()
+    if not payload.get("ok"):
+        raise RuntimeError(f"Telegram getUpdates failed: {payload}")
+    chats: dict[str, dict] = {}
+    for update in payload.get("result") or []:
+        message = update.get("message") or update.get("channel_post") or {}
+        chat = message.get("chat") or {}
+        chat_id = chat.get("id")
+        if chat_id is None:
+            continue
+        chats[str(chat_id)] = {
+            "id": chat_id,
+            "type": chat.get("type") or "unknown",
+            "title": chat.get("title") or chat.get("username") or chat.get("first_name") or "",
+        }
+    return list(chats.values())

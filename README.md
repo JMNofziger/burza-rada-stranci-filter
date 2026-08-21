@@ -7,12 +7,46 @@ open to hiring third-country nationals, ranked by application urgency.
 
 ```bash
 pip install -r requirements.txt
-export TELEGRAM_BOT_TOKEN="..."     # from @BotFather
-export TELEGRAM_CHAT_ID="..."       # your user id or a channel id
+cp .env.example .env          # local secrets; never commit .env
+# edit .env: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID
 
-python main.py bootstrap   # one-time: build the 6-day launch digest
-python main.py daily       # run once a day thereafter (see .github/workflows/daily.yml)
+python main.py bootstrap   # one-time: queue existing matches into a 6-day review
+python main.py daily       # collect new matches (cron target)
 ```
+
+`.env` is gitignored. GitHub Actions uses repo secrets with the same names
+instead of that file.
+
+## Telegram chat ID
+
+1. Talk to [@BotFather](https://t.me/BotFather), `/newbot`, copy the token into `TELEGRAM_BOT_TOKEN`.
+2. Open your bot in Telegram, tap **Start**, send any message (e.g. `hi`).
+3. Run:
+
+```bash
+python main.py chat-id
+```
+
+Use the printed number as `TELEGRAM_CHAT_ID` in `.env` (and as the GitHub Actions secret).
+
+A user chat id is a positive integer. A channel/group id is usually negative (often starts with `-100`). For a channel, add the bot as an admin, post a message in the channel, then re-run `chat-id`.
+
+Alternatively open this URL in a browser after messaging the bot (replace `TOKEN`):
+
+`https://api.telegram.org/botTOKEN/getUpdates`
+
+Look for `"chat":{"id": 123456789`.
+
+## What runs when
+
+| Mode | Purpose |
+|------|---------|
+| **daily** (main feature) | Scrape every day. Publish **only brand-new** filter matches. If none, send an explicit "no new ads" Telegram. |
+| **bootstrap** | One-time backlog: existing matches paced across 6 days so reviewing current posts is sane. `daily` sends the next bucket until that queue is empty. |
+
+Collection stays daily even if you later switch publishing to weekly
+(`NEW_MATCH_PUBLISH_CADENCE = "weekly"` in `config.py`). Expiry-soon
+alerts are not part of this path yet.
 
 ## Unattended daily run
 
@@ -29,10 +63,10 @@ For that schedule to actually fire:
 4. Optionally click **Run workflow** once on the Actions tab to smoke-test
    `workflow_dispatch` before waiting for 06:00 UTC.
 
-The first daily run will scrape ~1,000 Grad Zagreb list rows and fetch
-detail pages for unseen jobs (tens of minutes). Later days only fetch new
-`WebSifra`s. The SQLite state file is committed back to the repo so dedup
-survives ephemeral runners.
+The first daily run seeds ~1,000 Grad Zagreb list rows into SQLite so they
+are not mistaken for "new today". Later days only fetch unseen `WebSifra`s
+and Telegram the new filter matches (or a zero notice). The SQLite state
+file is committed back to the repo so dedup survives ephemeral runners.
 
 ## Live site behaviour (verified 2026-08-21)
 
