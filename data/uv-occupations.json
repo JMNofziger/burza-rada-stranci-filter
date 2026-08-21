@@ -1,0 +1,482 @@
+{
+  "version": 1,
+  "listMeta": {
+    "edition": "2023-03",
+    "sourceUrl": "https://mup.gov.hr/UserDocsImages/2024/8/Lista-zanimanja-izuzetak-od-provedbe-testa-trzista-rada_2023.pdf",
+    "mirrorUrl": "https://www.hzz.hr/app/uploads/2023/03/Lista-zanimanja-izuzetak-od-provedbe-testa-trzista-rada_2023.pdf",
+    "hubUrl": "https://www.hzz.hr/usluge/radne-dozvole-za-zaposljavanje-stranaca-i-test-trzista-rada/",
+    "sourceName": "MUP/HZZ — Lista zanimanja (izuzetak od TTR) PDF",
+    "sourceTier": 1,
+    "verifiedDate": "2026-08-21",
+    "sourceSha256": "268716d7facbc07f28e147f8a913b77c1ac75d729c00bbdfe7ee4a4d9da1bafb",
+    "note": "Official MUP/HZZ TTR-exemption occupation list (Upravno vijeće). Transcribed from the 2023 PDF; re-check hubUrl and sourceUrl before relying on it. sourceSha256 is SHA-256 of sourceUrl bytes as of verifiedDate."
+  },
+  "occupations": [
+    {
+      "id": "zidar-zidarica",
+      "titleHr": "Zidar/zidarica",
+      "titleEn": "Bricklayer / mason",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "tesar-tesarica",
+      "titleHr": "Tesar/tesarica",
+      "titleEn": "Carpenter",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "armirac-armiracica-i-betonirac-betonirka",
+      "titleHr": "Armirač/armiračica i betonirac/betonirka",
+      "titleEn": "Reinforcement worker / concrete worker",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "zavarivac-zavarivacica",
+      "titleHr": "Zavarivač/zavarivačica",
+      "titleEn": "Welder",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "fasader-fasaderka",
+      "titleHr": "Fasader/fasaderka",
+      "titleEn": "Facade worker",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "monter-monterka-gra-evinskih-elemenata",
+      "titleHr": "Monter/monterka građevinskih elemenata",
+      "titleEn": "Installer of construction elements",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "rukovatelj-rukovateljica-gra-evinskim-strojevima",
+      "titleHr": "Rukovatelj/rukovateljica građevinskim strojevima",
+      "titleEn": "Construction machinery operator",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "klesar-klesarica",
+      "titleHr": "Klesar/klesarica",
+      "titleEn": "Stonemason",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "rukovatelj-rukovateljica-kranom",
+      "titleHr": "Rukovatelj/rukovateljica kranom",
+      "titleEn": "Crane operator",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "stolar-stolarica",
+      "titleHr": "Stolar/stolarica",
+      "titleEn": "Joiner / carpenter (woodwork)",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "radnik-radnica-visokogradnje",
+      "titleHr": "Radnik/radnica visokogradnje",
+      "titleEn": "Building construction worker",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "radnik-radnica-niskogradnje",
+      "titleHr": "Radnik/radnica niskogradnje",
+      "titleEn": "Civil engineering / road construction worker",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "monter-monterka-cjevovoda",
+      "titleHr": "Monter/monterka cjevovoda",
+      "titleEn": "Pipeline fitter",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "soboslikar-licilac-soboslikarica-liciteljica",
+      "titleHr": "Soboslikar-ličilac/soboslikarica-ličiteljica",
+      "titleEn": "Painter / decorator",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "krovopokrivac-krovopokrivacica",
+      "titleHr": "Krovopokrivač/krovopokrivačica",
+      "titleEn": "Roofer",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "vodoinstalater-vodoinstalaterka",
+      "titleHr": "Vodoinstalater/vodoinstalaterka",
+      "titleEn": "Plumber",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "elektroinstalater-elektroinstalaterka",
+      "titleHr": "Elektroinstalater/elektroinstalaterka",
+      "titleEn": "Electrical installer",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "instalater-instalaterka-grijanja-i-klimatizacije",
+      "titleHr": "Instalater/instalaterka grijanja i klimatizacije",
+      "titleEn": "Heating and air-conditioning installer",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "izolater-izolaterka",
+      "titleHr": "Izolater/izolaterka",
+      "titleEn": "Insulation worker",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "monter-monterka-metalnih-konstrukcija",
+      "titleHr": "Monter/monterka metalnih konstrukcija",
+      "titleEn": "Metal structure fitter",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "polagac-polegacica-keramickih-plocica",
+      "titleHr": "Polagač/polegačica keramičkih pločica",
+      "titleEn": "Tile layer",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "podopolagac-podopolagacica",
+      "titleHr": "Podopolagač/podopolagačica",
+      "titleEn": "Floor layer",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "limar-limarica",
+      "titleHr": "Limar/limarica",
+      "titleEn": "Sheet-metal worker",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "bravar-bravarica",
+      "titleHr": "Bravar/bravarica",
+      "titleEn": "Locksmith / metalworker",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "elektromonter-elektromonterka",
+      "titleHr": "Elektromonter/elektromonterka",
+      "titleEn": "Electrical fitter / electrician (assembly)",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "elektricar-elektricarka",
+      "titleHr": "Električar/električarka",
+      "titleEn": "Electrician",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "vozac-vozacica-teretnog-vozila",
+      "titleHr": "Vozač/vozačica teretnog vozila",
+      "titleEn": "Truck driver (goods vehicle)",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "vozac-vozacica-teretnog-vozila-s-prikolicom",
+      "titleHr": "Vozač/vozačica teretnog vozila s prikolicom",
+      "titleEn": "Truck driver with trailer",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "automehanicar-automehanicarka",
+      "titleHr": "Automehaničar/automehaničarka",
+      "titleEn": "Auto mechanic",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "autolakirer-autolakirerica",
+      "titleHr": "Autolakirer/autolakirerica",
+      "titleEn": "Auto body painter",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "autolimar-autolimarica",
+      "titleHr": "Autolimar/autolimarica",
+      "titleEn": "Auto body sheet-metal worker",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "kozarski-radnik-kozarska-radnica",
+      "titleHr": "Kožarski radnik/kožarska radnica",
+      "titleEn": "Leather worker",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "krojac-krojacica",
+      "titleHr": "Krojač/krojačica",
+      "titleEn": "Tailor / cutter",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "kuhar-kuharica-nacionalne-kuhinje",
+      "titleHr": "Kuhar/kuharica nacionalne kuhinje",
+      "titleEn": "Cook (national cuisine)",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "slasticar-slasticarka",
+      "titleHr": "Slastičar/slastičarka",
+      "titleEn": "Pastry cook",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "pekar-pekarica",
+      "titleHr": "Pekar/pekarica",
+      "titleEn": "Baker",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "mesar-mesarica",
+      "titleHr": "Mesar/mesarica",
+      "titleEn": "Butcher",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "programer-programerka",
+      "titleHr": "Programer/programerka",
+      "titleEn": "Programmer",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "dizajner-dizajnerica-korisnickog-sucelja",
+      "titleHr": "Dizajner/dizajnerica korisničkog sučelja",
+      "titleEn": "UI designer",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "sistemski-administrator-sistemska-administratorica",
+      "titleHr": "Sistemski administrator/sistemska administratorica",
+      "titleEn": "Systems administrator",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "monter-monterka-celicne-uzadi-dizalica-i-liftova",
+      "titleHr": "Monter/monterka čelične užadi (dizalica i liftova)",
+      "titleEn": "Steel-rope fitter (cranes and lifts)",
+      "regions": [
+        "all"
+      ]
+    },
+    {
+      "id": "konobar-konobarica",
+      "titleHr": "Konobar/konobarica",
+      "titleEn": "Waiter / waitress",
+      "regions": [
+        "istarska",
+        "primorsko_goranska",
+        "zadarska",
+        "licko_senjska",
+        "sibensko_kninska",
+        "splitsko_dalmatinska",
+        "dubrovacko_neretvanska",
+        "grad_zagreb",
+        "zagrebacka",
+        "medimurska",
+        "krapinsko_zagorska",
+        "varazdinska"
+      ]
+    },
+    {
+      "id": "kuhar-kuharica",
+      "titleHr": "Kuhar/kuharica",
+      "titleEn": "Cook",
+      "regions": [
+        "istarska",
+        "primorsko_goranska",
+        "zadarska",
+        "licko_senjska",
+        "sibensko_kninska",
+        "splitsko_dalmatinska",
+        "dubrovacko_neretvanska",
+        "grad_zagreb",
+        "zagrebacka",
+        "medimurska",
+        "krapinsko_zagorska",
+        "varazdinska"
+      ]
+    },
+    {
+      "id": "sobar-sobarica",
+      "titleHr": "Sobar/sobarica",
+      "titleEn": "Room attendant / housekeeper",
+      "regions": [
+        "istarska",
+        "primorsko_goranska",
+        "dubrovacko_neretvanska",
+        "sibensko_kninska",
+        "zadarska",
+        "splitsko_dalmatinska",
+        "grad_zagreb",
+        "zagrebacka",
+        "karlovacka"
+      ]
+    },
+    {
+      "id": "cistac-cistacica",
+      "titleHr": "Čistač/čistačica",
+      "titleEn": "Cleaner",
+      "regions": [
+        "istarska",
+        "primorsko_goranska",
+        "dubrovacko_neretvanska",
+        "sibensko_kninska",
+        "zadarska",
+        "splitsko_dalmatinska",
+        "grad_zagreb",
+        "zagrebacka",
+        "karlovacka"
+      ]
+    },
+    {
+      "id": "pomocni-kuhar-pomocna-kuharica",
+      "titleHr": "Pomoćni kuhar/pomoćna kuharica",
+      "titleEn": "Kitchen assistant",
+      "regions": [
+        "istarska",
+        "primorsko_goranska",
+        "dubrovacko_neretvanska",
+        "sibensko_kninska",
+        "zadarska",
+        "splitsko_dalmatinska",
+        "grad_zagreb",
+        "zagrebacka",
+        "karlovacka"
+      ]
+    },
+    {
+      "id": "pomocni-konobar-pomocna-konobarica",
+      "titleHr": "Pomoćni konobar/pomoćna konobarica",
+      "titleEn": "Waiter assistant",
+      "regions": [
+        "istarska",
+        "primorsko_goranska",
+        "dubrovacko_neretvanska",
+        "sibensko_kninska",
+        "zadarska",
+        "splitsko_dalmatinska",
+        "grad_zagreb",
+        "zagrebacka",
+        "karlovacka"
+      ]
+    },
+    {
+      "id": "sivac-sivacica-tekstilnih-i-odjevnih-predmeta",
+      "titleHr": "Šivač/šivačica tekstilnih i odjevnih predmeta",
+      "titleEn": "Sewing worker (textiles / garments)",
+      "regions": [
+        "vukovarsko_srijemska",
+        "medimurska",
+        "sisacko_moslavacka",
+        "krapinsko_zagorska",
+        "varazdinska"
+      ]
+    },
+    {
+      "id": "vozac-vozacica-autobusa",
+      "titleHr": "Vozač/vozačica autobusa",
+      "titleEn": "Bus driver",
+      "regions": [
+        "grad_zagreb",
+        "zagrebacka",
+        "istarska",
+        "varazdinska",
+        "brodsko_posavska",
+        "dubrovacko_neretvanska",
+        "primorsko_goranska",
+        "sisacko_moslavacka"
+      ]
+    },
+    {
+      "id": "prodavac-prodavacica-samo-za-period-rada-od-01-05-30-09",
+      "titleHr": "Prodavač/prodavačica (samo za period rada od 01.05.-30.09.)",
+      "titleEn": "Sales assistant (seasonal work period only)",
+      "regions": [
+        "istarska",
+        "dubrovacko_neretvanska"
+      ]
+    }
+  ]
+}

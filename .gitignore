@@ -22,6 +22,7 @@ build/
 data/*
 !data/.gitkeep
 !data/hzz_jobs.sqlite3
+!data/uv-occupations.json
 *.sqlite3-*
 
 # OS / editor

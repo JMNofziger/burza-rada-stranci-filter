@@ -43,7 +43,10 @@ CREATE TABLE IF NOT EXISTS jobs (
     detail_url      TEXT,
     first_seen_at   TEXT NOT NULL,     -- ISO datetime
     digest_day      INTEGER,           -- 1..6 for the initial bootstrap, else NULL
-    notified_at     TEXT               -- ISO datetime, NULL until dispatched
+    notified_at     TEXT,              -- ISO datetime, NULL until dispatched
+    shortage_match  INTEGER NOT NULL DEFAULT 0,
+    shortage_occupations TEXT,         -- comma-joined UV occupation ids
+    category_label  TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_deadline ON jobs (deadline_date);
 CREATE INDEX IF NOT EXISTS idx_jobs_notified ON jobs (notified_at);
@@ -102,6 +105,15 @@ def location_label_for(location_score: int) -> str:
     return "City centre" if location_score == 2 else "Zagreb"
 
 
+def _tracks_for(data: dict) -> list[str]:
+    tracks: list[str] = []
+    if int(data.get("foreign_score") or 0) >= config.FOREIGN_SCORE_THRESHOLD:
+        tracks.append("foreigner_text")
+    if int(data.get("shortage_match") or 0):
+        tracks.append("shortage_occupation")
+    return tracks
+
+
 def job_row_to_view(row, today: date | None = None) -> dict:
     """Turn a jobs-table row into a JSON-ready dict with derived filter fields."""
     today = today or date.today()
@@ -130,6 +142,9 @@ def job_row_to_view(row, today: date | None = None) -> dict:
         "urgency": urgency_for_days(days),
         "foreign_score": int(data.get("foreign_score") or 0),
         "matched_keywords": data.get("matched_keywords") or "",
+        "shortage_match": bool(int(data.get("shortage_match") or 0)),
+        "shortage_occupations": data.get("shortage_occupations") or "",
+        "tracks": _tracks_for(data),
         "detail_url": data.get("detail_url") or "",
         "first_seen_at": data.get("first_seen_at") or "",
         "digest_day": data.get("digest_day"),
@@ -146,7 +161,20 @@ class StateStore:
         self._conn.execute("PRAGMA journal_mode=WAL;")
         self._conn.execute("PRAGMA foreign_keys=ON;")
         self._conn.executescript(SCHEMA)
+        self._ensure_columns()
         self._conn.commit()
+
+    def _ensure_columns(self) -> None:
+        """Add columns introduced after the first SCHEMA landed."""
+        cols = {row[1] for row in self._conn.execute("PRAGMA table_info(jobs)")}
+        extra = {
+            "shortage_match": "INTEGER NOT NULL DEFAULT 0",
+            "shortage_occupations": "TEXT",
+            "category_label": "TEXT",
+        }
+        for name, decl in extra.items():
+            if name not in cols:
+                self._conn.execute(f"ALTER TABLE jobs ADD COLUMN {name} {decl}")
 
     def close(self) -> None:
         try:
@@ -179,8 +207,10 @@ class StateStore:
             SELECT * FROM jobs
             WHERE notified_at IS NULL
               AND digest_day IS NULL
+              AND foreign_score >= ?
             ORDER BY deadline_date IS NULL, deadline_date
-            """
+            """,
+            (config.FOREIGN_SCORE_THRESHOLD,),
         )
         return cur.fetchall()
 
@@ -200,14 +230,28 @@ class StateStore:
                 INSERT INTO jobs (
                     web_sifra, title, employer, location_raw, deadline_date,
                     foreign_score, location_score, matched_keywords,
-                    detail_url, first_seen_at, digest_day
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    detail_url, first_seen_at, digest_day,
+                    shortage_match, shortage_occupations, category_label
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(web_sifra) DO UPDATE SET
+                    title=excluded.title,
+                    employer=excluded.employer,
+                    location_raw=excluded.location_raw,
                     deadline_date=excluded.deadline_date,
-                    foreign_score=excluded.foreign_score,
-                    location_score=excluded.location_score,
-                    matched_keywords=excluded.matched_keywords,
-                    digest_day=COALESCE(excluded.digest_day, jobs.digest_day)
+                    foreign_score=MAX(jobs.foreign_score, excluded.foreign_score),
+                    location_score=MAX(jobs.location_score, excluded.location_score),
+                    matched_keywords=CASE
+                        WHEN excluded.matched_keywords != '' THEN excluded.matched_keywords
+                        ELSE jobs.matched_keywords
+                    END,
+                    detail_url=COALESCE(NULLIF(excluded.detail_url, ''), jobs.detail_url),
+                    digest_day=COALESCE(excluded.digest_day, jobs.digest_day),
+                    shortage_match=MAX(jobs.shortage_match, excluded.shortage_match),
+                    shortage_occupations=CASE
+                        WHEN excluded.shortage_occupations != '' THEN excluded.shortage_occupations
+                        ELSE jobs.shortage_occupations
+                    END,
+                    category_label=COALESCE(NULLIF(excluded.category_label, ''), jobs.category_label)
                 """,
                 (
                     listing.web_sifra,
@@ -221,6 +265,9 @@ class StateStore:
                     listing.detail_url,
                     datetime.utcnow().isoformat(timespec="seconds"),
                     digest_day,
+                    1 if getattr(listing, "shortage_match", False) else 0,
+                    ",".join(getattr(listing, "shortage_occupations", None) or []),
+                    getattr(listing, "category_label", "") or "",
                 ),
             )
 
@@ -373,6 +420,11 @@ class StateStore:
     def count_inspected(self) -> int:
         cur = self._conn.execute("SELECT COUNT(*) AS n FROM inspected")
         return int(cur.fetchone()["n"])
+
+    def iter_inspected(self) -> list[sqlite3.Row]:
+        return self._conn.execute(
+            "SELECT * FROM inspected ORDER BY listed_at, web_sifra"
+        ).fetchall()
 
     def count_details_fetched(self) -> int:
         cur = self._conn.execute(

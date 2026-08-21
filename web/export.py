@@ -8,6 +8,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 import config
+import shortage
 from storage import StateStore
 
 log = logging.getLogger(__name__)
@@ -23,6 +24,7 @@ def jobs_payload(
     return {
         "jobs": store.list_jobs(today=as_of),
         "generated_at": generated.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "uv_list": shortage.list_meta_public(),
     }
 
 

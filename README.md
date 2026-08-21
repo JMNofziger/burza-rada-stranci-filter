@@ -1,7 +1,8 @@
 # HZZ Zagreb foreign-friendly job digest
 
 Personal pipeline that scrapes [Burza rada (HZZ)](https://burzarada.hzz.hr)
-for **GRAD ZAGREB** listings that look open to third-country nationals, then:
+for **GRAD ZAGREB** listings that look open to third-country nationals
+(ad wording) **or** match the official UV shortage occupation list, then:
 
 1. Sends **English Telegram** digests (new matches only after the first fill).
 2. Publishes a **phone-friendly jobs board** on GitHub Pages, updated after
@@ -22,6 +23,7 @@ secrets. Do not commit `.env`.
   - [Deploy jobs board](#4-deploy-jobs-board--githubworkflowspagesyml)
 - [CLI reference](#cli-reference)
 - [Jobs board](#jobs-board)
+- [Method](#method)
 - [What is stored](#what-is-stored)
 - [GitHub limits](#github-limits)
 - [Live site behaviour](#live-site-behaviour-verified-2026-08-21)
@@ -72,8 +74,8 @@ digest, no scrape.
 
 ## GitHub Actions workflows
 
-There are **four** workflow files. Open **Actions** in the GitHub UI to run
-the two that have a **Run workflow** button.
+There are **five** workflow files. Open **Actions** in the GitHub UI to run
+the ones that have a **Run workflow** button.
 
 | Workflow file | UI name | When it runs | Manual? |
 |---------------|---------|--------------|---------|
@@ -81,6 +83,7 @@ the two that have a **Run workflow** button.
 | `.github/workflows/daily.yml` | HZZ Zagreb daily digest | cron `06:00 UTC` **and** manual | yes |
 | `.github/workflows/full-scrape.yml` | HZZ one-off full scrape | manual only | yes |
 | `.github/workflows/pages.yml` | Deploy jobs board | push to `main` that touches `docs/` | no |
+| `.github/workflows/uv-list.yml` | UV occupation list freshness | Monday `08:00 UTC`, `docs` UV files, **and** manual | yes |
 
 ### Shared behaviour
 
@@ -270,6 +273,17 @@ URL: `https://jmnofziger.github.io/burza-rada-stranci-filter/`
 
 ---
 
+### 5. UV occupation list freshness — `.github/workflows/uv-list.yml`
+
+**Trigger:** Monday `08:00 UTC`, push touching `data/uv-occupations.json` /
+`shortage.py` / this workflow, and **Run workflow**.
+
+Downloads the official MUP PDF (`listMeta.sourceUrl`) and fails if its
+SHA-256 is not `listMeta.sourceSha256`. Unit tests separately fail if
+`verifiedDate` is older than 90 days. Refresh steps: [METHOD.md](METHOD.md).
+
+---
+
 ## CLI reference
 
 All commands: `python main.py <mode> [options]`. There is no `serve` mode.
@@ -281,7 +295,7 @@ environment (Actions secrets win in CI).
 | **bootstrap** | — | Score all Zagreb matches; bucket into 6-day backlog. Does not send. | no | yes | no |
 | **daily** | — | Collect new matches; Telegram new or zero notice; next backlog day; prune; export board. Empty DB seeds backlog instead of “all new”. | yes | yes | yes (on success) |
 | **full-scrape** | `--phase`, `--limit`, `--reset-list`, `--resume-help` | See below | **notify** only | yes (list/details/notify) | yes after details batches and notify |
-| **export-web** | — | Rebuild `docs/jobs.json` from current `jobs` table | no | no | yes |
+| **export-web** | — | Promote UV title matches from `inspected` into `jobs`; rebuild `docs/jobs.json` | no | yes (shortage promote) | yes |
 | **smoke** | env caps | 1 category, few rows, one detail page. No digest. | no | no | no |
 | **telegram-check** | — | `getMe` + `getChat` | no | no | no |
 | **chat-id** | — | Print chats; ping each | ping | no | no |
@@ -334,13 +348,27 @@ header; search, sort, and listing count live in the main column. Unchecked
 expiry or location (or employer) means **all listings**. The **N of M listings**
 count sits above the cards. Nav has an **EN/HR** control (English translates
 card titles and searches them), a sun/moon theme toggle (**dark is default**),
-and a **Method** page that explains inclusion rules, including the weighted
-foreigner-score lexicon. Tapping a card opens the
-HZZ detail URL.
+and a **Method** link to [`METHOD.md`](METHOD.md) on GitHub (not a Pages
+page). Tapping a card opens the HZZ detail URL.
 
-The board lists **matching `jobs`** after a successful collect. It refreshes
+The board lists **matching `jobs`** after a successful collect (foreigner-text
+**or** UV shortage occupation, Grad Zagreb). It refreshes
 when daily or full-scrape finishes and deploys Pages, or when `docs/` HTML
 changes merge and `pages.yml` runs.
+
+## Method
+
+Full inclusion rules: [`METHOD.md`](METHOD.md). Two tracks:
+
+1. **Foreigner-text score** — weighted phrases in ad copy (`config.py` /
+   `scoring.py`). Telegram uses this track only.
+2. **UV shortage occupation** — listing title vs official TTR-exemption
+   list (`data/uv-occupations.json`, `shortage.py`). Not a company-level
+   foreign-hire register.
+
+Keep the UV JSON current: bump `verifiedDate` after a hub check, or
+re-transcribe and update `sourceSha256` when the PDF changes. CI enforces
+age; weekly Actions re-hashes the PDF.
 
 ## What is stored
 
@@ -350,7 +378,8 @@ changes merge and `pages.yml` runs.
 | `inspected` | Every listed `WebSifra` (match or not) so details are not re-fetched |
 | `scrape_runs` / `scrape_categories` | Full-scrape list checkpoints |
 | `meta` | e.g. `last_successful_collect_on` |
-| `docs/jobs.json` | Public board payload (`generated_at` + jobs) |
+| `data/uv-occupations.json` | Official UV TTR-exemption occupation list + `listMeta` |
+| `docs/jobs.json` | Public board payload (`generated_at` + jobs + `uv_list`) |
 
 GitHub Actions runners are ephemeral, so SQLite **and** `docs/jobs.json`
 are committed after each successful collect (`[skip ci]`). First fill has
@@ -400,8 +429,10 @@ print(len(jobs), jobs[0].title if jobs else None)
 **Pagination:** WebForms postbacks (`__VIEWSTATE` / `__EVENTTARGET`), not
 `?page=N`.
 
-**Scoring:** keyword weights + negation window in `config.py` /
-`scoring.py`. Detail text is required; list-page titles are not enough.
+**Scoring:** two tracks. Keyword weights + negation window in `config.py` /
+`scoring.py` (Telegram). Title match to the UV TTR-exemption list in
+`shortage.py` / `data/uv-occupations.json` (board). Detail text is required
+for the keyword track; shortage matching uses the list-page title.
 
 **Dedup:** stable `WebSifra`, not a title hash.
 

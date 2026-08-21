@@ -31,6 +31,7 @@ import config
 import digest
 import notify
 import scoring
+import shortage
 from http_client import build_session
 from scraper import JobListing, fetch_detail, iter_zagreb_candidates, parse_hr_date
 from storage import StateStore
@@ -84,10 +85,37 @@ def _apply_scores(detailed: JobListing) -> bool:
         detailed.description,
         in_zagreb_county=True,
     )
-    return (
+    shortage.apply_shortage(detailed)
+    return detailed.location_score > 0 and (
         detailed.foreign_score >= config.FOREIGN_SCORE_THRESHOLD
-        and detailed.location_score > 0
+        or detailed.shortage_match
     )
+
+
+def promote_shortage_from_inspected(store: StateStore) -> int:
+    """Title-match UV occupations on inspected rows; upsert shortage-track jobs.
+
+    Does not fetch details. Telegram still only publishes foreigner-text matches.
+    """
+    uv_list = shortage.load_uv_list()
+    added = 0
+    for row in store.iter_inspected():
+        listing = inspected_row_to_listing(row)
+        hits = shortage.apply_shortage(listing, uv_list)
+        if not hits:
+            continue
+        listing.location_score = scoring.score_location(
+            listing.location_raw,
+            in_zagreb_county=True,
+        )
+        if listing.location_score <= 0:
+            continue
+        if not store.is_seen(listing.web_sifra):
+            added += 1
+        store.upsert_job(listing, digest_day=None)
+    if added:
+        log.info("Promoted %d shortage-track listings from inspected titles.", added)
+    return added
 
 
 def collect_and_score(session, store: StateStore, skip_seen: bool) -> list:
@@ -146,6 +174,7 @@ def _finish_successful_collect(store: StateStore) -> None:
             config.EXPIRED_JOB_RETENTION_DAYS,
             config.OPEN_ENDED_JOB_RETENTION_DAYS,
         )
+    promote_shortage_from_inspected(store)
     write_jobs_json(store)
 
 
@@ -323,6 +352,10 @@ def run_telegram_check() -> None:
 def job_row_to_listing(row) -> JobListing:
     deadline = date.fromisoformat(row["deadline_date"]) if row["deadline_date"] else None
     keywords = [k for k in (row["matched_keywords"] or "").split(",") if k]
+    keys = row.keys() if hasattr(row, "keys") else []
+    occ = []
+    if "shortage_occupations" in keys:
+        occ = [part for part in (row["shortage_occupations"] or "").split(",") if part]
     return JobListing(
         web_sifra=row["web_sifra"],
         title=row["title"],
@@ -334,6 +367,11 @@ def job_row_to_listing(row) -> JobListing:
         foreign_score=row["foreign_score"] or 0,
         location_score=row["location_score"] or 0,
         matched_keywords=keywords,
+        shortage_occupations=occ,
+        shortage_match=bool(int(row["shortage_match"] or 0))
+        if "shortage_match" in keys
+        else False,
+        category_label=(row["category_label"] or "") if "category_label" in keys else "",
     )
 
 
@@ -542,6 +580,7 @@ def run_full_scrape_details(limit: int = 0) -> int:
             matched_n,
             remaining,
         )
+        promote_shortage_from_inspected(store)
         write_jobs_json(store)
     return fetched
 
@@ -614,6 +653,7 @@ def run_full_scrape(
 
 def run_export_web() -> None:
     with StateStore() as store:
+        promote_shortage_from_inspected(store)
         path = write_jobs_json(store)
     print(f"Wrote {path}")
 

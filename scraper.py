@@ -76,6 +76,8 @@ class JobListing:
     matched_keywords: list = field(default_factory=list)
     location_score: int = 0
     category_label: str = ""
+    shortage_match: bool = False
+    shortage_occupations: list = field(default_factory=list)
 
 
 def parse_hr_date(raw: str) -> Optional[date]:

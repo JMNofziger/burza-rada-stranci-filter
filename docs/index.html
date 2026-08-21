@@ -22,7 +22,7 @@
     <div class="topbar-inner">
       <div class="brand">
         <h1><a href="./index.html" data-i18n="title">Matching jobs</a></h1>
-        <p class="subtitle" data-i18n="subtitle">Grad Zagreb · open to third-country nationals</p>
+        <p class="subtitle" data-i18n="subtitle">Grad Zagreb · foreigner-coded ads or UV shortage occupations</p>
       </div>
       <div class="topbar-actions">
         <div class="seg" role="group" aria-label="Language">
@@ -40,7 +40,7 @@
               d="M16.2 13.8A6.2 6.2 0 0 1 10.1 5a6.4 6.4 0 1 0 6.1 8.8Z"/>
           </svg>
         </button>
-        <a href="./method.html" class="btn ghost" data-i18n="method">Method</a>
+        <a href="https://github.com/JMNofziger/burza-rada-stranci-filter/blob/main/METHOD.md" class="btn ghost" data-i18n="method" target="_blank" rel="noopener">Method</a>
         <button type="button" id="filter-open" class="btn ghost" aria-controls="filters" aria-expanded="false" data-i18n="filters">
           Filters
         </button>
@@ -63,6 +63,11 @@
         <label><input type="checkbox" name="urgency" value="later"> <span data-i18n="ulater">Later</span></label>
         <label><input type="checkbox" name="urgency" value="open"> <span data-i18n="uopen">Open-ended</span></label>
         <label><input type="checkbox" name="urgency" value="expired"> <span data-i18n="uexpired">Expired</span></label>
+      </fieldset>
+      <fieldset>
+        <legend data-i18n="track">Track</legend>
+        <label><input type="checkbox" name="track" value="foreigner_text"> <span data-i18n="trackText">Foreigner-coded ad</span></label>
+        <label><input type="checkbox" name="track" value="shortage_occupation"> <span data-i18n="trackShortage">Shortage occupation (TTR skip)</span></label>
       </fieldset>
       <fieldset>
         <legend data-i18n="location">Location</legend>
