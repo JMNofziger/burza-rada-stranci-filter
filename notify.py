@@ -67,20 +67,22 @@ def build_digest_message(day_label: str, jobs: list) -> list[str]:
     return chunks
 
 
-def build_zero_new_matches_message() -> str:
+def build_zero_new_matches_message(title: str = "New listings") -> str:
     return (
-        "*New listings*\n\n"
+        f"*{escape_markdown_v2(title)}*\n\n"
         "No new listings matched the filter today\\."
     )
 
 
-def send_new_matches_report(token: str, chat_id: str, jobs: list) -> None:
+def send_new_matches_report(
+    token: str, chat_id: str, jobs: list, title: str = "New listings"
+) -> None:
     """Publish today's (or accumulated) new filter matches, or an explicit zero notice."""
     if not jobs:
         log.info("No new filter matches — sending zero notice.")
-        _send_with_retry(token, chat_id, build_zero_new_matches_message())
+        _send_with_retry(token, chat_id, build_zero_new_matches_message(title))
         return
-    send_telegram_digest(token, chat_id, "New listings", jobs)
+    send_telegram_digest(token, chat_id, title, jobs)
 
 
 def send_telegram_digest(token: str, chat_id: str, day_label: str, jobs: list) -> None:

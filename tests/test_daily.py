@@ -14,6 +14,11 @@ from storage import StateStore
 
 
 class PublishCadenceTests(unittest.TestCase):
+    def test_smoke_prefix(self):
+        with patch.object(config, "IS_SMOKE", True):
+            from main import _telegram_label
+            self.assertTrue(_telegram_label("New listings").startswith("SMOKE TEST"))
+
     def test_daily_always_publishes(self):
         with patch.object(config, "NEW_MATCH_PUBLISH_CADENCE", "daily"):
             self.assertTrue(should_publish_new_matches(date(2026, 8, 21)))  # Friday
