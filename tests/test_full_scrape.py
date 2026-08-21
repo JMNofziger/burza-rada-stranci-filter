@@ -122,6 +122,41 @@ class FullScrapeStatusTests(unittest.TestCase):
             parsed = json.loads(buf.getvalue())
             self.assertEqual(parsed["suggested_phase"], "done")
 
+    def test_resume_help_names_workflow_inputs(self):
+        from main import format_resume_instructions, full_scrape_status_dict
+
+        store = StateStore(self.db)
+        try:
+            empty = format_resume_instructions(full_scrape_status_dict(store), batch_size=40)
+            self.assertIn("start_phase:        all", empty)
+            self.assertIn("detail_batch_size:  40", empty)
+            self.assertIn("reset_list:         false", empty)
+            self.assertNotIn("details", empty.split("start_phase:")[1].splitlines()[0])
+
+            run_id = store.start_scrape_run()
+            store.record_listing(_listing("1"))
+            store.mark_run_list_complete(run_id)
+            details = format_resume_instructions(
+                full_scrape_status_dict(store), batch_size=20
+            )
+            self.assertIn("start_phase:        details", details)
+            self.assertIn("detail_batch_size:  20", details)
+            self.assertIn("1 detail page still pending", details)
+
+            store.mark_detail_fetched("1", matched=True)
+            store.upsert_job(_listing("1"), digest_day=None)
+            store.mark_run_details_complete(run_id)
+            notify = format_resume_instructions(full_scrape_status_dict(store))
+            self.assertIn("start_phase:        notify", notify)
+
+            store.mark_notified("1")
+            store.mark_run_notify_complete(run_id)
+            done = format_resume_instructions(full_scrape_status_dict(store))
+            self.assertIn("Nothing to resume", done)
+            self.assertNotIn("start_phase:", done)
+        finally:
+            store.close()
+
 
 class CollectSkipsFetchedTests(unittest.TestCase):
     def setUp(self):
