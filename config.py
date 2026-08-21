@@ -25,7 +25,6 @@ DETAIL_URL_TEMPLATE = f"{BASE_URL}/RadnoMjesto_Ispis.aspx?WebSifra={{web_sifra}}
 USER_AGENT = "hzz-zagreb-job-digest/1.0 (personal job search tool; contact: you@example.com)"
 REQUEST_TIMEOUT_SECONDS = 20
 REQUEST_DELAY_SECONDS = 1.0        # politeness delay between sequential requests
-DETAIL_FETCH_MAX_WORKERS = 4       # bounded concurrency for detail-page fetches
 MAX_RETRIES = 3
 RETRY_BACKOFF_FACTOR = 1.5
 LIST_PAGE_SIZE = "75"              # site options: 10, 25, 50, 75
@@ -34,8 +33,6 @@ MAX_PAGES_PER_CATEGORY = 20        # safety cap; largest Grad Zagreb category is
 MAX_CATEGORIES = int(os.environ.get("HZZ_MAX_CATEGORIES") or "0")
 MAX_LISTINGS = int(os.environ.get("HZZ_MAX_LISTINGS") or "0")
 IS_SMOKE = (os.environ.get("HZZ_SMOKE") or "").strip().lower() in {"1", "true", "yes"}
-# Unused by the CLI: CI passes workflow input detail_batch_size as --limit.
-FULL_SCRAPE_DETAIL_BATCH = int(os.environ.get("HZZ_DETAIL_BATCH") or "40")
 
 # County radio on the occupation-browse page.
 ZUPANIJA_FIELD = "ctl00$MainContent$rblZupanija"

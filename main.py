@@ -4,7 +4,7 @@ CLI entrypoint. There is no `serve` mode — the jobs board is GitHub Pages.
 
     python main.py bootstrap         # score matches; seed 6-day backlog (no Telegram)
     python main.py daily             # collect new matches, Telegram, prune, export board
-    python main.py full-scrape       # resumable scrape (`--phase` list|details|notify|status|all)
+    python main.py full-scrape       # resumable scrape (`--phase` list|details|notify|status|all; `--resume-help`)
     python main.py export-web        # rewrite docs/jobs.json from the current DB
     python main.py smoke             # cheap live probe; no Telegram, no DB writes
     python main.py telegram-check    # validate bot token + chat id; no scrape
