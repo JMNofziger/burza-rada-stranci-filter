@@ -108,26 +108,29 @@ Daily collect also records every listed `WebSifra` in `inspected`, including
 non-matches, so later runs do not re-fetch those detail pages.
 
 Expired ads (jobs **and** inspected) are deleted **3 calendar days after**
-`deadline_date`, then the file is `VACUUM`ed. Open-ended ads are not pruned.
-That keeps the *current* DB small; it does **not** shrink git history (see
-below).
+`deadline_date`. Open-ended ads are deleted **90 days after** first seen /
+listed. Then the file is `VACUUM`ed. That keeps the *current* DB small; it
+does **not** shrink git history (see below).
 
-## GitHub limits (private repo)
+## GitHub limits
 
-This repo is **private**, so Actions minutes are not unlimited.
+The HZZ ads themselves are public, so **making this repo public is fine**
+and is the simplest way off the private-repo 2,000-minute cap. Keep
+`TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` in Actions secrets and `.env`
+(already gitignored). Do not commit `.env`.
 
 | Constraint | Our plan | Verdict |
 |---|---|---|
-| **2,000 Linux min/month** (Free) | One full scrape ~40–70 min; daily after `inspected` skip should be a few minutes | Fits, unless a job hangs until timeout (90 or 180 min still **bills**) |
-| **No payment method** | Usage **stops** at quota | Prefer this to a surprise bill |
+| **Public repo + `ubuntu-latest`** | Minutes are free | Preferred if you want zero Actions billing |
+| **Private + Free plan** | 2,000 Linux min/month | One full scrape ~40–70 min; hung jobs still bill until timeout |
 | **Job cap 6h** / our timeouts 90–180 min | Full scrape should finish in <90 min | OK |
-| **Repo size ~1 GB warn / 5 GB hard** | SQLite is tiny; **git history of binary SQLite is not** | Real risk |
+| **Repo size ~1 GB warn / 5 GB hard** | SQLite is tiny; **git history of binary SQLite is not** | Real risk either way |
 | **100 MB file cap** | Unlikely at this volume | OK |
 | **API 1,000 req/hour** | ~27 `git push` checkpoints per full scrape | OK |
 
-**The SQLite-in-git pattern is the limit we will hit first**, not Actions minutes and not row count. Each daily persist and each details batch commits the *whole* DB as a new blob. Git barely deltas binary SQLite, so history grows with **number of persists**, not live rows. Pruning expired ads shrinks today's file; old checkpoints stay forever unless we rewrite history.
+**The SQLite-in-git pattern is the limit we will hit first**, not Actions minutes and not row count. Each daily persist and each details batch commits the *whole* DB as a new blob. Git barely deltas binary SQLite, so history grows with **number of persists**, not live rows. Pruning shrinks today's file; old checkpoints stay forever unless we rewrite history.
 
-Do **not**: make the repo public just to dodge minutes (the committed job DB would be public); use macOS/Windows runners (they burn quota faster); raise `timeout-minutes` to 360. If the `.git` copy of `data/hzz_jobs.sqlite3` ever becomes large, stop committing the DB and move state off git (S3/Gist/a tiny volume) rather than adding retention past 3 days.
+Do **not** use macOS/Windows runners or raise `timeout-minutes` toward 360. If `.git` gets large, stop committing the DB and move state off git.
 
 ## Manual one-off full scrape
 

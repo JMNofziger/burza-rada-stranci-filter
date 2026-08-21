@@ -253,33 +253,45 @@ class StateStore:
         return cur.fetchall()
 
     def prune_expired(self, before: date | None = None) -> int:
-        """Delete jobs/inspected rows whose deadline is older than the retention window.
+        """Delete stale jobs and inspected rows.
 
-        Retention is EXPIRED_JOB_RETENTION_DAYS after deadline_date (inclusive).
-        Open-ended rows (no deadline) are left in place.
+        Dated ads: gone EXPIRED_JOB_RETENTION_DAYS after deadline_date (inclusive).
+        Open-ended ads: gone OPEN_ENDED_JOB_RETENTION_DAYS after first_seen / listed.
         """
         from scraper import parse_hr_date
 
         today = before or date.today()
-        cutoff = today - timedelta(days=config.EXPIRED_JOB_RETENTION_DAYS)
-        cutoff_iso = cutoff.isoformat()
+        dated_cutoff = today - timedelta(days=config.EXPIRED_JOB_RETENTION_DAYS)
+        open_cutoff = today - timedelta(days=config.OPEN_ENDED_JOB_RETENTION_DAYS)
+        dated_iso = dated_cutoff.isoformat()
+        open_iso = open_cutoff.isoformat()
         with self.transaction() as conn:
             jobs_cur = conn.execute(
                 """
                 DELETE FROM jobs
-                WHERE deadline_date IS NOT NULL
-                  AND deadline_date <= ?
+                WHERE (
+                    deadline_date IS NOT NULL
+                    AND deadline_date <= ?
+                ) OR (
+                    deadline_date IS NULL
+                    AND date(first_seen_at) <= ?
+                )
                 """,
-                (cutoff_iso,),
+                (dated_iso, open_iso),
             )
             jobs_n = jobs_cur.rowcount
 
         stale_inspected: list[str] = []
         for row in self._conn.execute(
-            "SELECT web_sifra, deadline_raw FROM inspected"
+            "SELECT web_sifra, deadline_raw, listed_at FROM inspected"
         ):
             parsed = parse_hr_date(row["deadline_raw"] or "")
-            if parsed is not None and parsed <= cutoff:
+            if parsed is not None:
+                if parsed <= dated_cutoff:
+                    stale_inspected.append(row["web_sifra"])
+                continue
+            listed = (row["listed_at"] or "")[:10]
+            if listed and listed <= open_iso:
                 stale_inspected.append(row["web_sifra"])
         inspected_n = 0
         if stale_inspected:
@@ -294,12 +306,12 @@ class StateStore:
         if removed:
             self._conn.execute("VACUUM")
             log.info(
-                "Pruned %d jobs and %d inspected rows with deadline on or before %s "
-                "(%d-day post-expiry retention).",
+                "Pruned %d jobs and %d inspected rows "
+                "(dated on or before %s; open-ended first seen on or before %s).",
                 jobs_n,
                 inspected_n,
-                cutoff_iso,
-                config.EXPIRED_JOB_RETENTION_DAYS,
+                dated_iso,
+                open_iso,
             )
         return removed
 
