@@ -53,7 +53,25 @@
       "digest_day": null,
       "notified_at": null,
       "notified": false
+    },
+    {
+      "web_sifra": "165652984",
+      "title": "ISTRAŽITELJ / ICA POMORSKIH NESREĆA",
+      "employer": "Agencija za istraživanje nesreća u zračnom, pomorskom i željezničkom prometu",
+      "location_raw": "ZAGREB",
+      "location_score": 2,
+      "location_label": "City centre",
+      "deadline_date": "2026-09-03",
+      "days_until_deadline": 13,
+      "urgency": "later",
+      "foreign_score": 2,
+      "matched_keywords": "strani državljani",
+      "detail_url": "https://burzarada.hzz.hr/RadnoMjesto_Ispis.aspx?WebSifra=165652984&AspxAutoDetectCookieSupport=1",
+      "first_seen_at": "2026-08-21T14:47:13",
+      "digest_day": null,
+      "notified_at": null,
+      "notified": false
     }
   ],
-  "generated_at": "2026-08-21T14:46:50Z"
+  "generated_at": "2026-08-21T14:47:41Z"
 }
