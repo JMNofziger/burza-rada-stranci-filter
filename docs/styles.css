@@ -297,11 +297,16 @@ main {
   background: var(--bg-elev);
   border-radius: var(--radius);
   padding: 1.05rem;
-  text-decoration: none;
   color: inherit;
   border: 1px solid var(--border);
   box-shadow: var(--shadow);
 }
+.card-link {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+}
+.card-link:hover h3 { color: var(--accent); }
 .card h3 {
   margin: 0 0 0.4rem;
   font-family: var(--font-display);
@@ -322,6 +327,20 @@ main {
   margin: 0;
   color: var(--muted);
   font-size: 0.92rem;
+}
+.card-marks {
+  margin-top: 0.75rem;
+  width: fit-content;
+  max-width: 100%;
+}
+.card-marks .mark-btn {
+  min-height: 2.1rem;
+}
+.filter-note {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.35;
 }
 .badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 0.7rem; }
 .badge, .pill {

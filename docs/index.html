@@ -81,6 +81,13 @@
         <label><input type="radio" name="notified" value="yes"> <span data-i18n="tgYes">Already sent</span></label>
       </fieldset>
       <fieldset>
+        <legend data-i18n="myJobs">My jobs</legend>
+        <label><input type="radio" name="myjobs" value="all" checked> <span data-i18n="myJobsAll">All</span></label>
+        <label><input type="radio" name="myjobs" value="interested"> <span data-i18n="markInterested">Interested</span></label>
+        <label><input type="radio" name="myjobs" value="applied"> <span data-i18n="markApplied">Applied</span></label>
+        <p class="filter-note" data-i18n="trackerNote">Saved in this browser only</p>
+      </fieldset>
+      <fieldset>
         <legend data-i18n="employer">Employer</legend>
         <div id="employer-filters" class="check-list"></div>
       </fieldset>

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 import tempfile
 import unittest
 from datetime import date, datetime, timedelta
@@ -13,6 +14,65 @@ from web.export import jobs_payload, write_jobs_json
 
 
 TODAY = date(2026, 8, 21)
+ROOT = Path(__file__).resolve().parents[1]
+APP_JS = (ROOT / "docs" / "app.js").read_text()
+
+
+def _extract_js_functions(*names: str) -> str:
+    chunks: list[str] = []
+    for name in names:
+        pattern = rf"function {re.escape(name)}\([^)]*\) \{{"
+        match = re.search(pattern, APP_JS)
+        if not match:
+            raise AssertionError(f"missing function {name}")
+        start = match.start()
+        depth = 0
+        i = APP_JS.find("{", start)
+        for j in range(i, len(APP_JS)):
+            ch = APP_JS[j]
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    chunks.append(APP_JS[start : j + 1])
+                    break
+        else:
+            raise AssertionError(f"unclosed function {name}")
+    return "\n".join(chunks)
+
+
+def _run_tracker_cases(cases: list[dict]) -> list:
+    helpers = _extract_js_functions(
+        "emptyTracker",
+        "normalizeTracker",
+        "pruneTracker",
+        "getJobStatus",
+        "setJobStatus",
+        "toggleJobMark",
+    )
+    script = f"""
+const TRACKER_STATUSES = new Set(["interested", "applied"]);
+{helpers}
+const cases = {json.dumps(cases)};
+const out = [];
+for (const c of cases) {{
+  if (c.op === "normalize") out.push(normalizeTracker(c.raw));
+  else if (c.op === "prune") out.push(pruneTracker(c.tracker, c.ids));
+  else if (c.op === "get") out.push(getJobStatus(c.tracker, c.id));
+  else if (c.op === "set") out.push(setJobStatus(c.tracker, c.id, c.status));
+  else if (c.op === "toggle") out.push(toggleJobMark(c.tracker, c.id, c.mark));
+  else throw new Error("unknown op " + c.op);
+}}
+process.stdout.write(JSON.stringify(out));
+"""
+    proc = subprocess.run(
+        ["node", "-e", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return json.loads(proc.stdout)
 
 
 class UrgencyHelperTests(unittest.TestCase):
@@ -341,6 +401,115 @@ class PublicBoardStaticTests(unittest.TestCase):
         self.assertTrue(employer_line)
         self.assertNotIn(" · ", employer_line[0])
         self.assertNotIn("locKey", employer_line[0])
+
+    def test_job_mark_buttons_and_my_jobs_filter(self):
+        self.assertIn('name="myjobs"', self.html)
+        self.assertIn('value="all" checked', self.html)
+        self.assertIn('value="interested"', self.html)
+        self.assertIn('value="applied"', self.html)
+        self.assertIn('data-i18n="myJobs"', self.html)
+        self.assertIn('data-i18n="trackerNote"', self.html)
+        self.assertIn('li class="card"', self.js)
+        self.assertIn('class="card-link"', self.js)
+        self.assertIn('data-mark="interested"', self.js)
+        self.assertIn('data-mark="applied"', self.js)
+        self.assertIn("aria-pressed", self.js)
+        self.assertIn('closest("button[data-mark]")', self.js)
+        self.assertIn('input[name=myjobs]:checked', self.js)
+        self.assertIn('myJobs === "interested"', self.js)
+        self.assertIn(".card-marks", self.css)
+        self.assertIn(".filter-note", self.css)
+        self.assertIn('markInterested: "Interested"', self.js)
+        self.assertIn('markInterested: "Zanima me"', self.js)
+        self.assertIn('markApplied: "Applied"', self.js)
+        self.assertIn('markApplied: "Prijavljeno"', self.js)
+        self.assertIn("Saved in this browser only", self.js + self.html)
+        self.assertIn("Samo u ovom pregledniku", self.js)
+
+    def test_tracker_storage_key_and_graceful_failure(self):
+        self.assertIn('TRACKER_KEY = "hzz-job-tracker"', self.js)
+        self.assertIn("function loadTracker", self.js)
+        self.assertIn("function saveTracker", self.js)
+        self.assertIn("return emptyTracker()", self.js)
+        self.assertIn("return false", self.js)
+        self.assertIn("state.tracker = loadTracker()", self.js)
+        self.assertIn("pruneTracker(state.tracker, ids)", self.js)
+        # Failure paths must not throw out of load/save.
+        self.assertRegex(
+            self.js,
+            r"function loadTracker\(\) \{\s*try \{[\s\S]*?catch \(err\) \{\s*return emptyTracker\(\);\s*\}",
+        )
+        self.assertRegex(
+            self.js,
+            r"function saveTracker\(tracker\) \{\s*try \{[\s\S]*?catch \(err\) \{\s*return false;\s*\}",
+        )
+
+
+class JobTrackerHelperTests(unittest.TestCase):
+    def test_normalize_rejects_malformed_storage(self):
+        results = _run_tracker_cases(
+            [
+                {"op": "normalize", "raw": None},
+                {"op": "normalize", "raw": []},
+                {"op": "normalize", "raw": {"version": 2, "statuses": {"a": "interested"}}},
+                {"op": "normalize", "raw": {"version": 1, "statuses": "nope"}},
+                {
+                    "op": "normalize",
+                    "raw": {
+                        "version": 1,
+                        "statuses": {
+                            "ok": "interested",
+                            "bad": "maybe",
+                            "": "applied",
+                            "also": "applied",
+                        },
+                    },
+                },
+            ]
+        )
+        self.assertEqual(results[0], {"version": 1, "statuses": {}})
+        self.assertEqual(results[1], {"version": 1, "statuses": {}})
+        self.assertEqual(results[2], {"version": 1, "statuses": {}})
+        self.assertEqual(results[3], {"version": 1, "statuses": {}})
+        self.assertEqual(results[4], {"version": 1, "statuses": {"ok": "interested", "also": "applied"}})
+
+    def test_status_transitions_set_clear_and_supersede(self):
+        base = {"version": 1, "statuses": {}}
+        interested = _run_tracker_cases(
+            [{"op": "toggle", "tracker": base, "id": "j1", "mark": "interested"}]
+        )[0]
+        self.assertEqual(interested, {"version": 1, "statuses": {"j1": "interested"}})
+
+        applied = _run_tracker_cases(
+            [{"op": "toggle", "tracker": interested, "id": "j1", "mark": "applied"}]
+        )[0]
+        self.assertEqual(applied, {"version": 1, "statuses": {"j1": "applied"}})
+        self.assertEqual(len(applied["statuses"]), 1)
+
+        cleared = _run_tracker_cases(
+            [{"op": "toggle", "tracker": applied, "id": "j1", "mark": "applied"}]
+        )[0]
+        self.assertEqual(cleared, {"version": 1, "statuses": {}})
+
+        deleted = _run_tracker_cases(
+            [{"op": "set", "tracker": interested, "id": "j1", "status": None}]
+        )[0]
+        self.assertEqual(deleted, {"version": 1, "statuses": {}})
+
+        status = _run_tracker_cases(
+            [{"op": "get", "tracker": applied, "id": "j1"}]
+        )[0]
+        self.assertEqual(status, "applied")
+
+    def test_prune_drops_ids_absent_from_feed(self):
+        tracker = {
+            "version": 1,
+            "statuses": {"keep": "interested", "gone": "applied", "also-gone": "interested"},
+        }
+        pruned = _run_tracker_cases(
+            [{"op": "prune", "tracker": tracker, "ids": ["keep", "other"]}]
+        )[0]
+        self.assertEqual(pruned, {"version": 1, "statuses": {"keep": "interested"}})
 
 
 if __name__ == "__main__":
