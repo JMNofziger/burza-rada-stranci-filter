@@ -169,6 +169,10 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Configure Pages
         uses: actions/configure-pages@v5
+      - name: Write Google sign-in config
+        env:
+          GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
+        run: python3 -m web.sync_config
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
