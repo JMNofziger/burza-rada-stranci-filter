@@ -54,6 +54,32 @@ const I18N = {
     markInterested: "Interested",
     markApplied: "Applied",
     trackerNote: "Saved in this browser only",
+    syncSignIn: "Save my list to Google",
+    syncLead: "Use your Google account to see your marks on your phone and other computers.",
+    syncIntro:
+      "Google will ask to let this site store its own data in your Drive. It can only see this one list, not your files.",
+    syncContinue: "Continue to Google",
+    syncCancel: "Not now",
+    syncReconnect: "Reconnect to Google",
+    syncSignOut: "Stop saving to Google",
+    syncConnecting: "Connecting to Google…",
+    syncSaving: "Saving…",
+    syncSaved: "Saved to Google",
+    syncOffline: "Can't reach Google, your marks are still saved on this device.",
+    syncExpired: "Your Google connection timed out. Your marks are still saved on this device.",
+    syncCancelled: "Not connected. Your marks are still saved on this device.",
+    syncNeedPermission: "Google didn't allow saving. Try again and tick the box that lets this site save its list.",
+    syncStopped: "Stopped saving to Google. Your marks are still on this device.",
+    syncInApp: "To save to Google, open this page in Safari or Chrome.",
+    syncCopyLink: "Copy link",
+    syncLinkCopied: "Link copied",
+    markHint: "Marks are saved on this device.",
+    markHintSync: "Marks are saved on this device. Save to Google to see them everywhere.",
+    moreOptions: "More options",
+    backupDownload: "Download backup file",
+    backupLoad: "Load backup file",
+    backupLoaded: "Backup loaded.",
+    backupBad: "That file isn't a backup from this site.",
   },
   hr: {
     title: "Odgovarajući poslovi",
@@ -110,6 +136,32 @@ const I18N = {
     markInterested: "Zanima me",
     markApplied: "Prijavljeno",
     trackerNote: "Samo u ovom pregledniku",
+    syncSignIn: "Spremi moj popis na Google",
+    syncLead: "Prijavite se Google računom i vidite svoje oznake na mobitelu i drugim računalima.",
+    syncIntro:
+      "Google će tražiti dopuštenje da ova stranica sprema vlastite podatke na vaš Drive. Vidi samo ovaj popis, ne vaše datoteke.",
+    syncContinue: "Nastavi na Google",
+    syncCancel: "Ne sada",
+    syncReconnect: "Ponovno se poveži s Googleom",
+    syncSignOut: "Prestani spremati na Google",
+    syncConnecting: "Povezivanje s Googleom…",
+    syncSaving: "Spremanje…",
+    syncSaved: "Spremljeno na Google",
+    syncOffline: "Google trenutno nije dostupan, oznake su i dalje spremljene na ovom uređaju.",
+    syncExpired: "Veza s Googleom je istekla. Oznake su i dalje spremljene na ovom uređaju.",
+    syncCancelled: "Niste povezani. Oznake su i dalje spremljene na ovom uređaju.",
+    syncNeedPermission: "Google nije dopustio spremanje. Pokušajte ponovno i označite kućicu koja dopušta spremanje popisa.",
+    syncStopped: "Spremanje na Google je zaustavljeno. Oznake su i dalje na ovom uređaju.",
+    syncInApp: "Za spremanje na Google otvorite ovu stranicu u Safariju ili Chromeu.",
+    syncCopyLink: "Kopiraj poveznicu",
+    syncLinkCopied: "Poveznica kopirana",
+    markHint: "Oznake su spremljene na ovom uređaju.",
+    markHintSync: "Oznake su spremljene na ovom uređaju. Spremite ih na Google da ih vidite svugdje.",
+    moreOptions: "Više opcija",
+    backupDownload: "Preuzmi sigurnosnu kopiju",
+    backupLoad: "Učitaj sigurnosnu kopiju",
+    backupLoaded: "Sigurnosna kopija učitana.",
+    backupBad: "Ta datoteka nije sigurnosna kopija s ove stranice.",
   },
 };
 
@@ -137,7 +189,9 @@ const state = {
   generatedAt: null,
   lang: "en",
   translating: false,
-  tracker: { version: 1, statuses: {} },
+  tracker: { version: 2, statuses: {} },
+  jobsLoaded: false,
+  hintFor: null,
 };
 
 function $(id) {
@@ -167,22 +221,69 @@ function saveTitleCache(cache) {
 }
 
 function emptyTracker() {
-  return { version: 1, statuses: {} };
+  return { version: 2, statuses: {} };
 }
 
-function normalizeTracker(raw) {
+// v2 entry: { s: "interested" | "applied" | null, t: ms }. s:null is a deletion
+// marker so a clear on one device is not undone by a merge with another device.
+// v1 ({ id: status }) migrates with t = now.
+function normalizeTracker(raw, now) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return emptyTracker();
-  if (raw.version !== 1) return emptyTracker();
+  if (raw.version !== 1 && raw.version !== 2) return emptyTracker();
   if (!raw.statuses || typeof raw.statuses !== "object" || Array.isArray(raw.statuses)) {
     return emptyTracker();
   }
   const statuses = {};
-  for (const [id, status] of Object.entries(raw.statuses)) {
-    if (typeof id === "string" && id && TRACKER_STATUSES.has(status)) {
-      statuses[id] = status;
+  const migratedAt = typeof now === "number" ? now : Date.now();
+  for (const [id, value] of Object.entries(raw.statuses)) {
+    if (!id) continue;
+    if (raw.version === 1) {
+      if (TRACKER_STATUSES.has(value)) statuses[id] = { s: value, t: migratedAt };
+      continue;
+    }
+    if (!value || typeof value !== "object") continue;
+    const s = value.s === null ? null : value.s;
+    if (s !== null && !TRACKER_STATUSES.has(s)) continue;
+    if (typeof value.t !== "number" || !Number.isFinite(value.t)) continue;
+    statuses[id] = { s, t: value.t };
+  }
+  return { version: 2, statuses };
+}
+
+function statusRank(entry) {
+  if (!entry || entry.s === null) return 0;
+  return entry.s === "applied" ? 2 : 1;
+}
+
+function mergeTrackers(a, b) {
+  const left = (a && a.statuses) || {};
+  const right = (b && b.statuses) || {};
+  const statuses = {};
+  for (const id of new Set([...Object.keys(left), ...Object.keys(right)])) {
+    const x = left[id];
+    const y = right[id];
+    if (!x || !y) {
+      statuses[id] = { ...(x || y) };
+    } else if (x.t !== y.t) {
+      statuses[id] = { ...(x.t > y.t ? x : y) };
+    } else {
+      statuses[id] = { ...(statusRank(y) > statusRank(x) ? y : x) };
     }
   }
-  return { version: 1, statuses };
+  return { version: 2, statuses };
+}
+
+function trackerSignature(tracker) {
+  const statuses = (tracker && tracker.statuses) || {};
+  return JSON.stringify(
+    Object.keys(statuses)
+      .sort()
+      .map((id) => [id, statuses[id].s, statuses[id].t])
+  );
+}
+
+function countMarks(tracker) {
+  return Object.values((tracker && tracker.statuses) || {}).filter((entry) => entry.s).length;
 }
 
 function loadTracker() {
@@ -207,31 +308,139 @@ function saveTracker(tracker) {
 function pruneTracker(tracker, jobIds) {
   const keep = new Set(jobIds);
   const statuses = {};
-  for (const [id, status] of Object.entries(tracker.statuses || {})) {
-    if (keep.has(id)) statuses[id] = status;
+  for (const [id, entry] of Object.entries(tracker.statuses || {})) {
+    if (keep.has(id)) statuses[id] = entry;
   }
-  return { version: 1, statuses };
+  return { version: 2, statuses };
 }
 
 function getJobStatus(tracker, webSifra) {
-  return (tracker && tracker.statuses && tracker.statuses[webSifra]) || null;
+  const entry = tracker && tracker.statuses && tracker.statuses[webSifra];
+  return (entry && entry.s) || null;
 }
 
-function setJobStatus(tracker, webSifra, status) {
+function setJobStatus(tracker, webSifra, status, now) {
   const statuses = { ...(tracker.statuses || {}) };
+  const at = typeof now === "number" ? now : Date.now();
   if (!status) {
-    delete statuses[webSifra];
+    if (statuses[webSifra]) statuses[webSifra] = { s: null, t: at };
   } else if (TRACKER_STATUSES.has(status)) {
-    statuses[webSifra] = status;
+    statuses[webSifra] = { s: status, t: at };
   }
-  return { version: 1, statuses };
+  return { version: 2, statuses };
 }
 
-function toggleJobMark(tracker, webSifra, mark) {
+function toggleJobMark(tracker, webSifra, mark, now) {
   if (!TRACKER_STATUSES.has(mark)) return normalizeTracker(tracker);
   const current = getJobStatus(tracker, webSifra);
-  if (current === mark) return setJobStatus(tracker, webSifra, null);
-  return setJobStatus(tracker, webSifra, mark);
+  if (current === mark) return setJobStatus(tracker, webSifra, null, now);
+  return setJobStatus(tracker, webSifra, mark, now);
+}
+
+function parseBackup(text, now) {
+  let raw;
+  try {
+    raw = JSON.parse(text);
+  } catch (err) {
+    return null;
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  if (raw.version !== 1 && raw.version !== 2) return null;
+  if (!raw.statuses || typeof raw.statuses !== "object" || Array.isArray(raw.statuses)) return null;
+  return normalizeTracker(raw, now);
+}
+
+// --- Google Drive (appDataFolder) storage ---------------------------------
+
+const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.appdata";
+const DRIVE_FILE_NAME = "hzz-job-tracker.json";
+const DRIVE_API = "https://www.googleapis.com/drive/v3/files";
+const DRIVE_UPLOAD = "https://www.googleapis.com/upload/drive/v3/files";
+
+async function driveRequest(fetchFn, token, url, options) {
+  const opts = options || {};
+  const res = await fetchFn(url, {
+    ...opts,
+    headers: { ...(opts.headers || {}), Authorization: "Bearer " + token },
+  });
+  if (!res.ok) {
+    const err = new Error("Google Drive request failed (" + res.status + ")");
+    err.status = res.status;
+    throw err;
+  }
+  return res;
+}
+
+async function driveFindFile(fetchFn, token) {
+  const q = encodeURIComponent(`name='${DRIVE_FILE_NAME}' and trashed=false`);
+  const url =
+    `${DRIVE_API}?spaces=appDataFolder&q=${q}` +
+    `&fields=${encodeURIComponent("files(id,modifiedTime)")}` +
+    `&orderBy=${encodeURIComponent("modifiedTime desc")}&pageSize=1`;
+  const res = await driveRequest(fetchFn, token, url);
+  const data = await res.json();
+  return (data && data.files && data.files[0] && data.files[0].id) || null;
+}
+
+async function driveReadFile(fetchFn, token, fileId) {
+  const res = await driveRequest(fetchFn, token, `${DRIVE_API}/${encodeURIComponent(fileId)}?alt=media`);
+  const text = await res.text();
+  return parseBackup(text) || emptyTracker();
+}
+
+async function driveCreateFile(fetchFn, token, tracker) {
+  const boundary = "hzz" + Math.random().toString(36).slice(2);
+  const meta = JSON.stringify({
+    name: DRIVE_FILE_NAME,
+    parents: ["appDataFolder"],
+    mimeType: "application/json",
+  });
+  const body =
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n` +
+    `--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(tracker)}\r\n` +
+    `--${boundary}--`;
+  const res = await driveRequest(fetchFn, token, `${DRIVE_UPLOAD}?uploadType=multipart&fields=id`, {
+    method: "POST",
+    headers: { "Content-Type": `multipart/related; boundary=${boundary}` },
+    body,
+  });
+  const data = await res.json();
+  return data.id;
+}
+
+async function driveUpdateFile(fetchFn, token, fileId, tracker) {
+  await driveRequest(fetchFn, token, `${DRIVE_UPLOAD}/${encodeURIComponent(fileId)}?uploadType=media`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(tracker),
+  });
+}
+
+// Read Drive, merge with local, prune to the live feed, write only if changed.
+async function driveSyncOnce(local, opts) {
+  const { fetchFn, token, jobIds } = opts;
+  let fileId = opts.fileId || (await driveFindFile(fetchFn, token));
+  let remote = emptyTracker();
+  if (fileId) {
+    try {
+      remote = await driveReadFile(fetchFn, token, fileId);
+    } catch (err) {
+      if (err.status !== 404) throw err;
+      fileId = await driveFindFile(fetchFn, token);
+      if (fileId) remote = await driveReadFile(fetchFn, token, fileId);
+    }
+  }
+  let merged = mergeTrackers(local, remote);
+  if (jobIds) merged = pruneTracker(merged, jobIds);
+  let wrote = false;
+  if (!fileId) {
+    fileId = await driveCreateFile(fetchFn, token, merged);
+    wrote = true;
+  } else if (trackerSignature(merged) !== trackerSignature(remote)) {
+    await driveUpdateFile(fetchFn, token, fileId, merged);
+    wrote = true;
+  }
+  return { tracker: merged, fileId, wrote };
 }
 
 function titleCacheKey(job) {
@@ -293,6 +502,7 @@ function setLang(lang) {
     /* ignore */
   }
   applyI18n();
+  renderSync();
   if (!IS_BOARD) return;
   render();
   if (state.lang === "en") translateVisibleTitles();
@@ -546,6 +756,7 @@ function render() {
           <button type="button" class="seg-btn mark-btn" data-mark="interested" data-sifra="${sifra}" aria-pressed="${mark === "interested" ? "true" : "false"}">${escapeHtml(t("markInterested"))}</button>
           <button type="button" class="seg-btn mark-btn" data-mark="applied" data-sifra="${sifra}" aria-pressed="${mark === "applied" ? "true" : "false"}">${escapeHtml(t("markApplied"))}</button>
         </div>
+        ${state.hintFor === job.web_sifra ? `<p class="mark-hint">${escapeHtml(t(GOOGLE_CLIENT_ID && !syncConnected() ? "markHintSync" : "markHint"))}</p>` : ""}
       </li>`;
     })
     .join("");
@@ -594,6 +805,342 @@ async function translateVisibleTitles() {
   }
 }
 
+// --- Save to Google: sign-in, sync triggers, status ------------------------
+
+const GOOGLE_CLIENT_ID =
+  (typeof window !== "undefined" &&
+    typeof window.HZZ_GOOGLE_CLIENT_ID === "string" &&
+    window.HZZ_GOOGLE_CLIENT_ID.trim()) ||
+  "";
+const SYNC_FLAG_KEY = "hzz-sync-enabled";
+const SYNC_INTRO_KEY = "hzz-sync-intro-seen";
+const MARK_HINT_KEY = "hzz-mark-hint-seen";
+const GIS_SRC = "https://accounts.google.com/gsi/client";
+// Google blocks OAuth inside in-app browsers (Telegram, Facebook, Instagram, Android WebView).
+const IN_APP_UA_RE = /Telegram|FBAN|FBAV|Instagram|Line\/|LinkedInApp|Snapchat|; wv\)/i;
+const SYNC_DEBOUNCE_MS = 2000;
+
+const sync = {
+  status: "off",
+  token: null,
+  tokenExpiresAt: 0,
+  fileId: null,
+  savedAt: null,
+  timer: null,
+  running: false,
+  again: false,
+  gis: null,
+  client: null,
+  pending: null,
+};
+
+function readFlag(key) {
+  try {
+    return localStorage.getItem(key) === "1";
+  } catch (err) {
+    return false;
+  }
+}
+
+function writeFlag(key, on) {
+  try {
+    if (on) localStorage.setItem(key, "1");
+    else localStorage.removeItem(key);
+  } catch (err) {
+    /* ignore */
+  }
+}
+
+function isInAppBrowser() {
+  return typeof navigator !== "undefined" && IN_APP_UA_RE.test(navigator.userAgent || "");
+}
+
+function gisReady() {
+  return Boolean(window.google && window.google.accounts && window.google.accounts.oauth2);
+}
+
+function loadGis() {
+  if (gisReady()) return Promise.resolve();
+  if (!sync.gis) {
+    sync.gis = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = GIS_SRC;
+      script.async = true;
+      script.onload = () => resolve();
+      script.onerror = () => {
+        sync.gis = null;
+        reject(new Error("Could not load Google sign-in"));
+      };
+      document.head.appendChild(script);
+    });
+  }
+  return sync.gis;
+}
+
+function settleToken(resp, err) {
+  const pending = sync.pending;
+  sync.pending = null;
+  if (!pending) return;
+  if (err || (resp && resp.error)) {
+    const type = (err && err.type) || (resp && resp.error) || "unknown";
+    const failure = new Error(type);
+    failure.type = type;
+    pending.reject(failure);
+    return;
+  }
+  pending.resolve(resp);
+}
+
+function tokenClient() {
+  if (!sync.client) {
+    sync.client = window.google.accounts.oauth2.initTokenClient({
+      client_id: GOOGLE_CLIENT_ID,
+      scope: DRIVE_SCOPE,
+      callback: (resp) => settleToken(resp, null),
+      error_callback: (err) => settleToken(null, err),
+    });
+  }
+  return sync.client;
+}
+
+// Must run inside a click handler: browsers only allow the Google popup after a tap.
+function requestToken() {
+  return new Promise((resolve, reject) => {
+    sync.pending = { resolve, reject };
+    tokenClient().requestAccessToken({ prompt: "" });
+  });
+}
+
+function hasValidToken() {
+  return Boolean(sync.token) && Date.now() < sync.tokenExpiresAt - 60000;
+}
+
+function setSyncStatus(status) {
+  sync.status = status;
+  renderSync();
+  render();
+}
+
+async function connectGoogle() {
+  if (!gisReady()) {
+    setSyncStatus("connecting");
+    try {
+      await loadGis();
+    } catch (err) {
+      setSyncStatus("offline");
+      return;
+    }
+  }
+  setSyncStatus("connecting");
+  let resp;
+  try {
+    resp = await requestToken();
+  } catch (err) {
+    setSyncStatus(err.type === "popup_failed_to_open" ? "inapp" : "cancelled");
+    return;
+  }
+  if (!window.google.accounts.oauth2.hasGrantedAllScopes(resp, DRIVE_SCOPE)) {
+    setSyncStatus("permission");
+    return;
+  }
+  sync.token = resp.access_token;
+  sync.tokenExpiresAt = Date.now() + (Number(resp.expires_in) || 3600) * 1000;
+  writeFlag(SYNC_FLAG_KEY, true);
+  await runSync();
+}
+
+function stopGoogle() {
+  const token = sync.token;
+  sync.token = null;
+  sync.fileId = null;
+  sync.savedAt = null;
+  clearTimeout(sync.timer);
+  writeFlag(SYNC_FLAG_KEY, false);
+  if (token && gisReady()) window.google.accounts.oauth2.revoke(token, () => {});
+  setSyncStatus("stopped");
+}
+
+function liveJobIds() {
+  return state.jobsLoaded ? state.jobs.map((job) => job.web_sifra) : null;
+}
+
+async function runSync() {
+  if (!GOOGLE_CLIENT_ID || !readFlag(SYNC_FLAG_KEY)) return;
+  if (!hasValidToken()) {
+    sync.token = null;
+    setSyncStatus("expired");
+    return;
+  }
+  if (sync.running) {
+    sync.again = true;
+    return;
+  }
+  sync.running = true;
+  setSyncStatus("saving");
+  try {
+    const ids = liveJobIds();
+    const result = await driveSyncOnce(state.tracker, {
+      fetchFn: window.fetch.bind(window),
+      token: sync.token,
+      fileId: sync.fileId,
+      jobIds: ids,
+    });
+    sync.fileId = result.fileId;
+    let next = mergeTrackers(state.tracker, result.tracker);
+    if (ids) next = pruneTracker(next, ids);
+    if (trackerSignature(next) !== trackerSignature(result.tracker)) sync.again = true;
+    state.tracker = next;
+    saveTracker(state.tracker);
+    sync.savedAt = new Date();
+    sync.running = false;
+    setSyncStatus("saved");
+  } catch (err) {
+    sync.running = false;
+    sync.again = false;
+    if (err.status === 401) {
+      sync.token = null;
+      setSyncStatus("expired");
+    } else {
+      setSyncStatus("offline");
+    }
+  }
+  if (sync.again) {
+    sync.again = false;
+    scheduleSync(0);
+  }
+}
+
+function scheduleSync(delay) {
+  if (!GOOGLE_CLIENT_ID || !readFlag(SYNC_FLAG_KEY)) return;
+  clearTimeout(sync.timer);
+  sync.timer = setTimeout(runSync, typeof delay === "number" ? delay : SYNC_DEBOUNCE_MS);
+}
+
+function syncConnected() {
+  return sync.status === "saving" || sync.status === "saved";
+}
+
+function formatClock(date) {
+  return date.toLocaleTimeString(state.lang === "hr" ? "hr-HR" : "en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function renderSync() {
+  const box = $("sync-box");
+  if (!box) return;
+  box.hidden = !GOOGLE_CLIENT_ID;
+  const note = $("tracker-note");
+  if (note) note.hidden = Boolean(GOOGLE_CLIENT_ID) && syncConnected();
+  if (!GOOGLE_CLIENT_ID) return;
+  const s = sync.status;
+  const enabled = readFlag(SYNC_FLAG_KEY);
+  const messages = {
+    connecting: "syncConnecting",
+    saving: "syncSaving",
+    offline: "syncOffline",
+    expired: "syncExpired",
+    cancelled: "syncCancelled",
+    permission: "syncNeedPermission",
+    stopped: "syncStopped",
+  };
+  let text = messages[s] ? t(messages[s]) : "";
+  if (s === "saved") text = t("syncSaved") + (sync.savedAt ? " · " + formatClock(sync.savedAt) : "");
+  const reconnect = enabled && (s === "expired" || s === "resume" || (s === "offline" && !hasValidToken()));
+  const showSignIn = !["intro", "connecting", "saving", "saved", "inapp"].includes(s) && !(s === "offline" && hasValidToken());
+  $("sync-lead").hidden = !["off", "cancelled", "permission", "stopped"].includes(s);
+  $("sync-intro").hidden = s !== "intro";
+  $("sync-inapp").hidden = s !== "inapp";
+  const signIn = $("sync-signin");
+  signIn.hidden = !showSignIn;
+  signIn.textContent = t(reconnect ? "syncReconnect" : "syncSignIn");
+  $("sync-signout").hidden = !enabled || s === "intro" || s === "connecting";
+  const status = $("sync-status");
+  status.textContent = text;
+  status.hidden = !text;
+}
+
+function onSignInClick() {
+  if (!readFlag(SYNC_INTRO_KEY)) {
+    setSyncStatus("intro");
+    loadGis().catch(() => {});
+    return;
+  }
+  connectGoogle();
+}
+
+function onIntroContinue() {
+  writeFlag(SYNC_INTRO_KEY, true);
+  connectGoogle();
+}
+
+async function copyPageLink() {
+  const btn = $("sync-copy-link");
+  const url = window.location.href.split("#")[0];
+  try {
+    await navigator.clipboard.writeText(url);
+    btn.textContent = t("syncLinkCopied");
+  } catch (err) {
+    const status = $("sync-status");
+    status.textContent = url;
+    status.hidden = false;
+  }
+}
+
+function initSync() {
+  if (!GOOGLE_CLIENT_ID) {
+    renderSync();
+    return;
+  }
+  if (isInAppBrowser()) {
+    sync.status = "inapp";
+  } else if (readFlag(SYNC_FLAG_KEY)) {
+    sync.status = "resume";
+    loadGis().catch(() => {});
+  } else {
+    sync.status = "off";
+    if (readFlag(SYNC_INTRO_KEY)) loadGis().catch(() => {});
+  }
+  renderSync();
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && hasValidToken()) runSync();
+  });
+}
+
+// --- Backup file ------------------------------------------------------------
+
+function downloadBackup() {
+  const blob = new Blob([JSON.stringify(state.tracker, null, 2) + "\n"], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = DRIVE_FILE_NAME;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function loadBackupFile(file) {
+  const note = $("backup-status");
+  const incoming = parseBackup(await file.text());
+  if (!incoming) {
+    if (note) note.textContent = t("backupBad");
+    return;
+  }
+  let next = mergeTrackers(state.tracker, incoming);
+  const ids = liveJobIds();
+  if (ids) next = pruneTracker(next, ids);
+  state.tracker = next;
+  saveTracker(state.tracker);
+  render();
+  if (note) note.textContent = t("backupLoaded");
+  scheduleSync(0);
+}
+
 function bind() {
   const filterOpen = $("filter-open");
   const filterClose = $("filter-close");
@@ -637,7 +1184,35 @@ function bind() {
       if (!mark || !sifra) return;
       state.tracker = toggleJobMark(state.tracker, sifra, mark);
       saveTracker(state.tracker);
+      state.hintFor = null;
+      if (getJobStatus(state.tracker, sifra) && !readFlag(MARK_HINT_KEY)) {
+        state.hintFor = sifra;
+        writeFlag(MARK_HINT_KEY, true);
+      }
       render();
+      scheduleSync();
+    });
+  }
+  const signIn = $("sync-signin");
+  const introContinue = $("sync-continue");
+  const introCancel = $("sync-cancel");
+  const signOut = $("sync-signout");
+  const copyLink = $("sync-copy-link");
+  const backupDownload = $("backup-download");
+  const backupLoad = $("backup-load");
+  const backupFile = $("backup-file");
+  if (signIn) signIn.addEventListener("click", onSignInClick);
+  if (introContinue) introContinue.addEventListener("click", onIntroContinue);
+  if (introCancel) introCancel.addEventListener("click", () => setSyncStatus("off"));
+  if (signOut) signOut.addEventListener("click", stopGoogle);
+  if (copyLink) copyLink.addEventListener("click", copyPageLink);
+  if (backupDownload) backupDownload.addEventListener("click", downloadBackup);
+  if (backupLoad && backupFile) backupLoad.addEventListener("click", () => backupFile.click());
+  if (backupFile) {
+    backupFile.addEventListener("change", (event) => {
+      event.stopPropagation();
+      const file = backupFile.files && backupFile.files[0];
+      if (file) loadBackupFile(file).finally(() => (backupFile.value = ""));
     });
   }
 }
@@ -650,9 +1225,11 @@ try {
 }
 
 state.tracker = loadTracker();
+saveTracker(state.tracker);
 
 bind();
 applyI18n();
+if (IS_BOARD) initSync();
 
 if (IS_BOARD) {
   fetch("./jobs.json", { cache: "no-store" })
@@ -669,6 +1246,8 @@ if (IS_BOARD) {
       const ids = state.jobs.map((job) => job.web_sifra);
       state.tracker = pruneTracker(state.tracker, ids);
       saveTracker(state.tracker);
+      state.jobsLoaded = true;
+      if (hasValidToken()) scheduleSync(0);
       renderEmployers(state.jobs);
       render();
       if (state.lang === "en") translateVisibleTitles();

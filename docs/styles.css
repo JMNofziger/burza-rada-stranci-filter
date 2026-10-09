@@ -342,6 +342,33 @@ main {
   font-size: 0.8rem;
   line-height: 1.35;
 }
+.sync-box {
+  margin: 0.4rem 0 0.9rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-soft);
+}
+.sync-box .btn-wide,
+.more-options .btn-wide { margin-top: 0.6rem; }
+.sync-box > .filter-note:first-child { margin-top: 0; }
+.sync-intro p {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+.more-options { margin-top: 0.8rem; }
+.more-options summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.mark-hint {
+  margin: 0.5rem 0 0;
+  color: var(--accent);
+  font-size: 0.82rem;
+}
+[hidden] { display: none !important; }
 .badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 0.7rem; }
 .badge, .pill {
   display: inline-block;

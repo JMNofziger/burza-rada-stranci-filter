@@ -10,6 +10,7 @@ HZZ ads are public. Telegram tokens stay in gitignored `.env` / Actions secrets.
 |------|--------|---------|
 | `TELEGRAM_BOT_TOKEN` | `.env` locally; repo **Actions secret** | scrape/alert workflows, `telegram-check` |
 | `TELEGRAM_CHAT_ID` | same | same |
+| `GOOGLE_CLIENT_ID` | repo **Actions variable** (not a secret) | Pages deploys write it to `docs/sync-config.js`; setup: [GOOGLE_SYNC_SETUP.md](GOOGLE_SYNC_SETUP.md) |
 
 The bot is **send-only**. Silence after Start in Telegram is expected.
 
@@ -45,7 +46,7 @@ Five workflows. Scheduled jobs only run from `main`.
 | `test.yml` | every push and PR | no |
 | `daily.yml` | cron `06:00 UTC` and manual | yes |
 | `full-scrape.yml` | manual | yes |
-| `pages.yml` | push to `main` that touches `docs/**` | no |
+| `pages.yml` | push to `main` that touches `docs/**`, and manual | yes |
 | `uv-list.yml` | Monday `08:00 UTC`, UV file push, manual | yes |
 
 **Shared**
@@ -90,7 +91,9 @@ Timeout 180 min. `python main.py full-scrape --phase status --resume-help` print
 
 ### Pages — `pages.yml`
 
-Redeploys the board when `docs/` HTML/CSS/JS changes. Data-only persist commits skip this workflow; daily/full-scrape deploy Pages themselves.
+Redeploys the board when `docs/` HTML/CSS/JS changes, or on Run workflow (use after setting `GOOGLE_CLIENT_ID`). Data-only persist commits skip this workflow; daily/full-scrape deploy Pages themselves.
+
+All three deploy paths run `python3 -m web.sync_config` right before upload. It writes `docs/sync-config.js` from the `GOOGLE_CLIENT_ID` variable into the artifact only; the committed file keeps an empty ID, which hides "Save my list to Google". Marks sync to each user's Drive `appDataFolder` (scope `drive.appdata`); there is no server copy.
 
 ### UV list — `uv-list.yml`
 

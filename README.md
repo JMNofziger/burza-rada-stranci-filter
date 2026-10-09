@@ -5,7 +5,7 @@ A public subset of [HZZ Burza rada](https://burzarada.hzz.hr) ads in **Grad Zagr
 **Board:** [jmnofziger.github.io/burza-rada-stranci-filter](https://jmnofziger.github.io/burza-rada-stranci-filter/)
 
 - EN / HR, dark theme, filters (expiry, location, employer, track)
-- Card opens the HZZ listing; Interested/Applied marks stay in this browser only
+- Card opens the HZZ listing; Interested/Applied marks stay on your device. Sign in with Google to see them on your other devices.
 - **Method** on the board explains how the subset is built
 
 **Telegram:** English digest of *new foreigner-coded ads only* (not shortage-only jobs). Titles are translated; employer is the original name plus English in parentheses when it differs.

@@ -26,6 +26,8 @@ def _extract_js_functions(*names: str) -> str:
         if not match:
             raise AssertionError(f"missing function {name}")
         start = match.start()
+        if APP_JS[max(0, start - 6) : start] == "async ":
+            start -= 6
         depth = 0
         i = APP_JS.find("{", start)
         for j in range(i, len(APP_JS)):
@@ -42,37 +44,118 @@ def _extract_js_functions(*names: str) -> str:
     return "\n".join(chunks)
 
 
+TRACKER_FUNCS = (
+    "emptyTracker",
+    "normalizeTracker",
+    "statusRank",
+    "mergeTrackers",
+    "trackerSignature",
+    "countMarks",
+    "pruneTracker",
+    "getJobStatus",
+    "setJobStatus",
+    "toggleJobMark",
+    "parseBackup",
+)
+DRIVE_FUNCS = (
+    "driveRequest",
+    "driveFindFile",
+    "driveReadFile",
+    "driveCreateFile",
+    "driveUpdateFile",
+    "driveSyncOnce",
+)
+
+
+def _js_consts(*names: str) -> str:
+    lines = []
+    for name in names:
+        match = re.search(rf"^const {re.escape(name)} = .*;$", APP_JS, re.M)
+        if not match:
+            raise AssertionError(f"missing const {name}")
+        lines.append(match.group(0))
+    return "\n".join(lines)
+
+
+def _run_node(script: str):
+    proc = subprocess.run(["node", "-e", script], check=True, capture_output=True, text=True)
+    return json.loads(proc.stdout)
+
+
 def _run_tracker_cases(cases: list[dict]) -> list:
-    helpers = _extract_js_functions(
-        "emptyTracker",
-        "normalizeTracker",
-        "pruneTracker",
-        "getJobStatus",
-        "setJobStatus",
-        "toggleJobMark",
-    )
+    helpers = _extract_js_functions(*TRACKER_FUNCS)
     script = f"""
-const TRACKER_STATUSES = new Set(["interested", "applied"]);
+{_js_consts("TRACKER_STATUSES")}
 {helpers}
 const cases = {json.dumps(cases)};
 const out = [];
 for (const c of cases) {{
-  if (c.op === "normalize") out.push(normalizeTracker(c.raw));
+  if (c.op === "normalize") out.push(normalizeTracker(c.raw, c.now));
   else if (c.op === "prune") out.push(pruneTracker(c.tracker, c.ids));
   else if (c.op === "get") out.push(getJobStatus(c.tracker, c.id));
-  else if (c.op === "set") out.push(setJobStatus(c.tracker, c.id, c.status));
-  else if (c.op === "toggle") out.push(toggleJobMark(c.tracker, c.id, c.mark));
+  else if (c.op === "set") out.push(setJobStatus(c.tracker, c.id, c.status, c.now));
+  else if (c.op === "toggle") out.push(toggleJobMark(c.tracker, c.id, c.mark, c.now));
+  else if (c.op === "merge") out.push(mergeTrackers(c.a, c.b));
+  else if (c.op === "count") out.push(countMarks(c.tracker));
+  else if (c.op === "parse") out.push(parseBackup(c.text, c.now));
+  else if (c.op === "roundtrip") out.push(parseBackup(JSON.stringify(c.tracker, null, 2) + "\\n"));
   else throw new Error("unknown op " + c.op);
 }}
 process.stdout.write(JSON.stringify(out));
 """
-    proc = subprocess.run(
-        ["node", "-e", script],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return json.loads(proc.stdout)
+    return _run_node(script)
+
+
+def _run_drive_sync(scenario: dict) -> dict:
+    """Run driveSyncOnce against an in-memory fake Drive."""
+    helpers = _extract_js_functions(*TRACKER_FUNCS, *DRIVE_FUNCS)
+    script = f"""
+{_js_consts("TRACKER_STATUSES", "DRIVE_SCOPE", "DRIVE_FILE_NAME", "DRIVE_API", "DRIVE_UPLOAD")}
+{helpers}
+const sc = {json.dumps(scenario)};
+const files = {{}};
+if (sc.remote) files.f1 = JSON.stringify(sc.remote);
+const calls = [];
+function reply(status, body) {{
+  return {{ ok: status < 400, status, json: async () => JSON.parse(body), text: async () => body }};
+}}
+async function fakeFetch(url, opts) {{
+  const o = opts || {{}};
+  const method = o.method || "GET";
+  const [path, query] = url.split("?");
+  calls.push({{ method, path, query: decodeURIComponent(query || ""), auth: (o.headers || {{}}).Authorization }});
+  if (sc.status) return reply(sc.status, "{{}}");
+  if (method === "GET" && path === DRIVE_API) {{
+    return reply(200, JSON.stringify({{ files: Object.keys(files).map((id) => ({{ id }})) }}));
+  }}
+  if (method === "GET" && path.startsWith(DRIVE_API + "/")) {{
+    const id = path.slice(DRIVE_API.length + 1);
+    return id in files ? reply(200, files[id]) : reply(404, "{{}}");
+  }}
+  if (method === "POST" && path === DRIVE_UPLOAD) {{
+    const boundary = o.headers["Content-Type"].split("boundary=")[1];
+    const parts = o.body.split("--" + boundary);
+    const meta = JSON.parse(parts[1].split("\\r\\n\\r\\n")[1]);
+    files.created = parts[2].split("\\r\\n\\r\\n")[1].replace(/\\r\\n$/, "");
+    calls[calls.length - 1].meta = meta;
+    return reply(200, JSON.stringify({{ id: "created" }}));
+  }}
+  if (method === "PATCH" && path.startsWith(DRIVE_UPLOAD + "/")) {{
+    files[path.slice(DRIVE_UPLOAD.length + 1)] = o.body;
+    return reply(200, "{{}}");
+  }}
+  return reply(500, "{{}}");
+}}
+driveSyncOnce(sc.local, {{ fetchFn: fakeFetch, token: "tok", fileId: sc.fileId || null, jobIds: sc.jobIds || null }})
+  .then((res) => ({{ result: res, error: null }}))
+  .catch((err) => ({{ result: null, error: err.status || String(err) }}))
+  .then((outcome) => {{
+    const stored = {{}};
+    for (const [id, text] of Object.entries(files)) stored[id] = JSON.parse(text);
+    process.stdout.write(JSON.stringify({{ ...outcome, calls, stored }}));
+  }});
+"""
+    return _run_node(script)
 
 
 class UrgencyHelperTests(unittest.TestCase):
@@ -445,71 +528,315 @@ class PublicBoardStaticTests(unittest.TestCase):
         )
 
 
+def _entry(s, t):
+    return {"s": s, "t": t}
+
+
 class JobTrackerHelperTests(unittest.TestCase):
     def test_normalize_rejects_malformed_storage(self):
         results = _run_tracker_cases(
             [
                 {"op": "normalize", "raw": None},
                 {"op": "normalize", "raw": []},
-                {"op": "normalize", "raw": {"version": 2, "statuses": {"a": "interested"}}},
-                {"op": "normalize", "raw": {"version": 1, "statuses": "nope"}},
+                {"op": "normalize", "raw": {"version": 3, "statuses": {}}},
+                {"op": "normalize", "raw": {"version": 2, "statuses": "nope"}},
                 {
                     "op": "normalize",
                     "raw": {
-                        "version": 1,
+                        "version": 2,
                         "statuses": {
-                            "ok": "interested",
-                            "bad": "maybe",
-                            "": "applied",
-                            "also": "applied",
+                            "ok": _entry("interested", 5),
+                            "cleared": _entry(None, 6),
+                            "bad-status": _entry("maybe", 1),
+                            "no-time": {"s": "applied"},
+                            "flat": "applied",
+                            "": _entry("applied", 1),
                         },
                     },
                 },
             ]
         )
-        self.assertEqual(results[0], {"version": 1, "statuses": {}})
-        self.assertEqual(results[1], {"version": 1, "statuses": {}})
-        self.assertEqual(results[2], {"version": 1, "statuses": {}})
-        self.assertEqual(results[3], {"version": 1, "statuses": {}})
-        self.assertEqual(results[4], {"version": 1, "statuses": {"ok": "interested", "also": "applied"}})
+        empty = {"version": 2, "statuses": {}}
+        self.assertEqual(results[:4], [empty, empty, empty, empty])
+        self.assertEqual(
+            results[4],
+            {"version": 2, "statuses": {"ok": _entry("interested", 5), "cleared": _entry(None, 6)}},
+        )
+
+    def test_v1_migrates_with_migration_time(self):
+        migrated = _run_tracker_cases(
+            [
+                {
+                    "op": "normalize",
+                    "now": 1000,
+                    "raw": {"version": 1, "statuses": {"a": "interested", "b": "applied", "c": "maybe"}},
+                }
+            ]
+        )[0]
+        self.assertEqual(
+            migrated,
+            {"version": 2, "statuses": {"a": _entry("interested", 1000), "b": _entry("applied", 1000)}},
+        )
 
     def test_status_transitions_set_clear_and_supersede(self):
-        base = {"version": 1, "statuses": {}}
+        base = {"version": 2, "statuses": {}}
         interested = _run_tracker_cases(
-            [{"op": "toggle", "tracker": base, "id": "j1", "mark": "interested"}]
+            [{"op": "toggle", "tracker": base, "id": "j1", "mark": "interested", "now": 10}]
         )[0]
-        self.assertEqual(interested, {"version": 1, "statuses": {"j1": "interested"}})
+        self.assertEqual(interested, {"version": 2, "statuses": {"j1": _entry("interested", 10)}})
 
         applied = _run_tracker_cases(
-            [{"op": "toggle", "tracker": interested, "id": "j1", "mark": "applied"}]
+            [{"op": "toggle", "tracker": interested, "id": "j1", "mark": "applied", "now": 20}]
         )[0]
-        self.assertEqual(applied, {"version": 1, "statuses": {"j1": "applied"}})
-        self.assertEqual(len(applied["statuses"]), 1)
+        self.assertEqual(applied, {"version": 2, "statuses": {"j1": _entry("applied", 20)}})
 
         cleared = _run_tracker_cases(
-            [{"op": "toggle", "tracker": applied, "id": "j1", "mark": "applied"}]
+            [{"op": "toggle", "tracker": applied, "id": "j1", "mark": "applied", "now": 30}]
         )[0]
-        self.assertEqual(cleared, {"version": 1, "statuses": {}})
+        self.assertEqual(cleared, {"version": 2, "statuses": {"j1": _entry(None, 30)}})
 
-        deleted = _run_tracker_cases(
-            [{"op": "set", "tracker": interested, "id": "j1", "status": None}]
+        never_set = _run_tracker_cases(
+            [{"op": "set", "tracker": base, "id": "j9", "status": None, "now": 40}]
         )[0]
-        self.assertEqual(deleted, {"version": 1, "statuses": {}})
+        self.assertEqual(never_set, base)
 
-        status = _run_tracker_cases(
-            [{"op": "get", "tracker": applied, "id": "j1"}]
-        )[0]
-        self.assertEqual(status, "applied")
+        statuses = _run_tracker_cases(
+            [
+                {"op": "get", "tracker": applied, "id": "j1"},
+                {"op": "get", "tracker": cleared, "id": "j1"},
+                {"op": "count", "tracker": cleared},
+            ]
+        )
+        self.assertEqual(statuses, ["applied", None, 0])
 
-    def test_prune_drops_ids_absent_from_feed(self):
+    def test_merge_keeps_newest_entry_and_deletion_markers(self):
+        laptop = {
+            "version": 2,
+            "statuses": {
+                "a": _entry("interested", 10),
+                "b": _entry("applied", 50),
+                "c": _entry(None, 40),
+                "tie": _entry("interested", 5),
+            },
+        }
+        phone = {
+            "version": 2,
+            "statuses": {
+                "a": _entry("applied", 20),
+                "b": _entry(None, 30),
+                "c": _entry("interested", 35),
+                "d": _entry("interested", 1),
+                "tie": _entry("applied", 5),
+            },
+        }
+        merged, swapped = _run_tracker_cases(
+            [{"op": "merge", "a": laptop, "b": phone}, {"op": "merge", "a": phone, "b": laptop}]
+        )
+        expected = {
+            "version": 2,
+            "statuses": {
+                "a": _entry("applied", 20),
+                "b": _entry("applied", 50),
+                "c": _entry(None, 40),
+                "d": _entry("interested", 1),
+                "tie": _entry("applied", 5),
+            },
+        }
+        self.assertEqual(merged, expected)
+        self.assertEqual(swapped, expected)
+
+    def test_prune_drops_ids_absent_from_feed_including_markers(self):
         tracker = {
-            "version": 1,
-            "statuses": {"keep": "interested", "gone": "applied", "also-gone": "interested"},
+            "version": 2,
+            "statuses": {
+                "keep": _entry("interested", 1),
+                "keep-cleared": _entry(None, 2),
+                "gone": _entry("applied", 3),
+                "gone-cleared": _entry(None, 4),
+            },
         }
         pruned = _run_tracker_cases(
-            [{"op": "prune", "tracker": tracker, "ids": ["keep", "other"]}]
+            [{"op": "prune", "tracker": tracker, "ids": ["keep", "keep-cleared", "other"]}]
         )[0]
-        self.assertEqual(pruned, {"version": 1, "statuses": {"keep": "interested"}})
+        self.assertEqual(
+            pruned,
+            {"version": 2, "statuses": {"keep": _entry("interested", 1), "keep-cleared": _entry(None, 2)}},
+        )
+
+    def test_backup_parse_rejects_bad_files_and_round_trips(self):
+        tracker = {"version": 2, "statuses": {"a": _entry("applied", 7), "b": _entry(None, 8)}}
+        results = _run_tracker_cases(
+            [
+                {"op": "parse", "text": "not json"},
+                {"op": "parse", "text": "[]"},
+                {"op": "parse", "text": '{"version": 9, "statuses": {}}'},
+                {"op": "parse", "text": '{"version": 2}'},
+                {"op": "parse", "text": '{"version": 1, "statuses": {"x": "interested"}}', "now": 99},
+                {"op": "roundtrip", "tracker": tracker},
+            ]
+        )
+        self.assertEqual(results[:4], [None, None, None, None])
+        self.assertEqual(results[4], {"version": 2, "statuses": {"x": _entry("interested", 99)}})
+        self.assertEqual(results[5], tracker)
+
+
+class DriveSyncTests(unittest.TestCase):
+    LOCAL = {"version": 2, "statuses": {"a": _entry("interested", 10)}}
+
+    def test_creates_file_in_app_folder_when_missing(self):
+        out = _run_drive_sync({"local": self.LOCAL, "remote": None})
+        self.assertIsNone(out["error"])
+        self.assertTrue(out["result"]["wrote"])
+        self.assertEqual(out["result"]["fileId"], "created")
+        self.assertEqual(out["stored"]["created"], self.LOCAL)
+        listing = out["calls"][0]
+        self.assertEqual(listing["method"], "GET")
+        self.assertIn("spaces=appDataFolder", listing["query"])
+        self.assertIn("name='hzz-job-tracker.json'", listing["query"])
+        create = out["calls"][-1]
+        self.assertEqual(create["method"], "POST")
+        self.assertIn("uploadType=multipart", create["query"])
+        self.assertEqual(create["meta"]["parents"], ["appDataFolder"])
+        self.assertEqual(create["meta"]["name"], "hzz-job-tracker.json")
+        self.assertTrue(all(call["auth"] == "Bearer tok" for call in out["calls"]))
+
+    def test_reads_merges_prunes_and_writes(self):
+        remote = {
+            "version": 2,
+            "statuses": {"a": _entry("applied", 20), "b": _entry("interested", 5), "gone": _entry("applied", 1)},
+        }
+        local = {"version": 2, "statuses": {"a": _entry("interested", 10), "c": _entry("applied", 30)}}
+        out = _run_drive_sync({"local": local, "remote": remote, "jobIds": ["a", "b", "c"]})
+        self.assertIsNone(out["error"])
+        expected = {
+            "version": 2,
+            "statuses": {"a": _entry("applied", 20), "b": _entry("interested", 5), "c": _entry("applied", 30)},
+        }
+        self.assertEqual(out["result"]["tracker"], expected)
+        self.assertTrue(out["result"]["wrote"])
+        self.assertEqual(out["stored"]["f1"], expected)
+        patch = out["calls"][-1]
+        self.assertEqual(patch["method"], "PATCH")
+        self.assertIn("uploadType=media", patch["query"])
+
+    def test_no_write_when_unchanged(self):
+        out = _run_drive_sync({"local": self.LOCAL, "remote": self.LOCAL, "fileId": "f1"})
+        self.assertIsNone(out["error"])
+        self.assertFalse(out["result"]["wrote"])
+        self.assertEqual([call["method"] for call in out["calls"]], ["GET"])
+
+    def test_stale_device_does_not_overwrite_newer_marks(self):
+        remote = {"version": 2, "statuses": {"a": _entry(None, 50)}}
+        out = _run_drive_sync({"local": self.LOCAL, "remote": remote, "fileId": "f1"})
+        self.assertEqual(out["result"]["tracker"], remote)
+        self.assertFalse(out["result"]["wrote"])
+
+    def test_missing_cached_file_is_found_again(self):
+        out = _run_drive_sync({"local": self.LOCAL, "remote": self.LOCAL, "fileId": "deleted"})
+        self.assertIsNone(out["error"])
+        self.assertEqual(out["result"]["fileId"], "f1")
+
+    def test_expired_token_surfaces_401(self):
+        out = _run_drive_sync({"local": self.LOCAL, "remote": self.LOCAL, "status": 401})
+        self.assertEqual(out["error"], 401)
+        self.assertIsNone(out["result"])
+
+
+class SyncConfigTests(unittest.TestCase):
+    def _evaluate(self, client_id: str) -> str:
+        from web.sync_config import write_sync_config
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_sync_config(client_id, Path(tmp) / "sync-config.js")
+            script = (
+                "global.window = {};\n"
+                + path.read_text()
+                + "\nprocess.stdout.write(JSON.stringify(window.HZZ_GOOGLE_CLIENT_ID));"
+            )
+            return _run_node(script)
+
+    def test_writes_valid_js_for_empty_normal_and_quoted_values(self):
+        self.assertEqual(self._evaluate(""), "")
+        self.assertEqual(self._evaluate("  123-abc.apps.googleusercontent.com \n"), "123-abc.apps.googleusercontent.com")
+        tricky = 'a"b\\c</script>'
+        self.assertEqual(self._evaluate(tricky), tricky)
+
+    def test_committed_config_has_no_client_id(self):
+        committed = (ROOT / "docs" / "sync-config.js").read_text()
+        self.assertEqual(committed, 'window.HZZ_GOOGLE_CLIENT_ID = "";\n')
+
+
+class GoogleSyncStaticTests(unittest.TestCase):
+    def setUp(self):
+        self.html = (ROOT / "docs" / "index.html").read_text()
+        self.js = APP_JS
+        self.guide = (ROOT / "product" / "GOOGLE_SYNC_SETUP.md").read_text()
+
+    def test_scope_is_app_folder_only(self):
+        self.assertIn('DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.appdata"', self.js)
+        scopes = set(re.findall(r"https://www\.googleapis\.com/auth/[\w.]+", self.js))
+        self.assertEqual(scopes, {"https://www.googleapis.com/auth/drive.appdata"})
+
+    def test_block_hidden_without_client_id(self):
+        self.assertIn('id="sync-box" class="sync-box" hidden', self.html)
+        self.assertIn("box.hidden = !GOOGLE_CLIENT_ID", self.js)
+        self.assertLess(self.html.find("./sync-config.js"), self.html.find("./app.js"))
+        self.assertIn("window.HZZ_GOOGLE_CLIENT_ID", self.js)
+
+    def test_token_never_persisted(self):
+        for line in self.js.splitlines():
+            if "sync.token" in line or "access_token" in line:
+                self.assertNotIn("Storage", line)
+                self.assertNotIn("setItem", line)
+        self.assertNotIn("sessionStorage", self.js)
+
+    def test_expired_session_shows_reconnect(self):
+        self.assertRegex(
+            self.js,
+            r'if \(err\.status === 401\) \{\s*sync\.token = null;\s*setSyncStatus\("expired"\);',
+        )
+        self.assertIn('t(reconnect ? "syncReconnect" : "syncSignIn")', self.js)
+        self.assertIn('syncReconnect: "Reconnect to Google"', self.js)
+
+    def test_plain_language_and_in_app_notice(self):
+        for text in (
+            'syncSignIn: "Save my list to Google"',
+            "It can only see this one list, not your files.",
+            "To save to Google, open this page in Safari or Chrome.",
+            'syncSignOut: "Stop saving to Google"',
+            'backupDownload: "Download backup file"',
+            'syncSignIn: "Spremi moj popis na Google"',
+        ):
+            self.assertIn(text, self.js)
+        self.assertIn("Telegram", self.js)
+        self.assertIn('"popup_failed_to_open"', self.js)
+        self.assertIn('<details class="more-options">', self.html)
+
+    def test_deploy_workflows_write_config_before_upload(self):
+        for name in ("daily.yml", "full-scrape.yml", "pages.yml"):
+            text = (ROOT / ".github" / "workflows" / name).read_text()
+            self.assertIn("GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}", text, name)
+            write_at = text.find("python3 -m web.sync_config")
+            self.assertGreater(write_at, 0, name)
+            self.assertLess(write_at, text.find("upload-pages-artifact"), name)
+            persist_at = text.find("persist-state.sh")
+            if persist_at >= 0:
+                self.assertLess(persist_at, write_at, name)
+        pages = (ROOT / ".github" / "workflows" / "pages.yml").read_text()
+        self.assertIn("workflow_dispatch:", pages)
+
+    def test_setup_guide_has_exact_values(self):
+        for value in (
+            "https://jmnofziger.github.io",
+            "GOOGLE_CLIENT_ID",
+            "drive.appdata",
+            "**Variables** tab (not Secrets)",
+            "Publish app",
+            "origin_mismatch",
+            "Deploy jobs board",
+        ):
+            self.assertIn(value, self.guide)
+        self.assertNotIn("https://jmnofziger.github.io/\n", self.guide)
 
 
 if __name__ == "__main__":
