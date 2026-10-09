@@ -49,6 +49,11 @@ const I18N = {
     tipLocCentre: "Location score 2: Zagreb city centre.",
     tipLocZagreb: "Location score 1: Zagreb, not city centre.",
     tipTelegram: "Already included in a Telegram digest.",
+    myJobs: "My jobs",
+    myJobsAll: "All",
+    markInterested: "Interested",
+    markApplied: "Applied",
+    trackerNote: "Saved in this browser only",
   },
   hr: {
     title: "Odgovarajući poslovi",
@@ -100,6 +105,11 @@ const I18N = {
     tipLocCentre: "Lokacijski rezultat 2: centar Zagreba.",
     tipLocZagreb: "Lokacijski rezultat 1: Zagreb, nije centar.",
     tipTelegram: "Već uključeno u Telegram sažetak.",
+    myJobs: "Moji poslovi",
+    myJobsAll: "Svi",
+    markInterested: "Zanima me",
+    markApplied: "Prijavljeno",
+    trackerNote: "Samo u ovom pregledniku",
   },
 };
 
@@ -119,12 +129,15 @@ const URGENCY_TIP = {
 const TITLE_CACHE_KEY = "hzz-title-en";
 const LANG_KEY = "hzz-lang";
 const THEME_KEY = "hzz-theme";
+const TRACKER_KEY = "hzz-job-tracker";
+const TRACKER_STATUSES = new Set(["interested", "applied"]);
 
 const state = {
   jobs: [],
   generatedAt: null,
   lang: "en",
   translating: false,
+  tracker: { version: 1, statuses: {} },
 };
 
 function $(id) {
@@ -151,6 +164,74 @@ function saveTitleCache(cache) {
   } catch (err) {
     /* quota */
   }
+}
+
+function emptyTracker() {
+  return { version: 1, statuses: {} };
+}
+
+function normalizeTracker(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return emptyTracker();
+  if (raw.version !== 1) return emptyTracker();
+  if (!raw.statuses || typeof raw.statuses !== "object" || Array.isArray(raw.statuses)) {
+    return emptyTracker();
+  }
+  const statuses = {};
+  for (const [id, status] of Object.entries(raw.statuses)) {
+    if (typeof id === "string" && id && TRACKER_STATUSES.has(status)) {
+      statuses[id] = status;
+    }
+  }
+  return { version: 1, statuses };
+}
+
+function loadTracker() {
+  try {
+    const raw = localStorage.getItem(TRACKER_KEY);
+    if (!raw) return emptyTracker();
+    return normalizeTracker(JSON.parse(raw));
+  } catch (err) {
+    return emptyTracker();
+  }
+}
+
+function saveTracker(tracker) {
+  try {
+    localStorage.setItem(TRACKER_KEY, JSON.stringify(tracker));
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+function pruneTracker(tracker, jobIds) {
+  const keep = new Set(jobIds);
+  const statuses = {};
+  for (const [id, status] of Object.entries(tracker.statuses || {})) {
+    if (keep.has(id)) statuses[id] = status;
+  }
+  return { version: 1, statuses };
+}
+
+function getJobStatus(tracker, webSifra) {
+  return (tracker && tracker.statuses && tracker.statuses[webSifra]) || null;
+}
+
+function setJobStatus(tracker, webSifra, status) {
+  const statuses = { ...(tracker.statuses || {}) };
+  if (!status) {
+    delete statuses[webSifra];
+  } else if (TRACKER_STATUSES.has(status)) {
+    statuses[webSifra] = status;
+  }
+  return { version: 1, statuses };
+}
+
+function toggleJobMark(tracker, webSifra, mark) {
+  if (!TRACKER_STATUSES.has(mark)) return normalizeTracker(tracker);
+  const current = getJobStatus(tracker, webSifra);
+  if (current === mark) return setJobStatus(tracker, webSifra, null);
+  return setJobStatus(tracker, webSifra, mark);
 }
 
 function titleCacheKey(job) {
@@ -270,6 +351,8 @@ function applyFilters(jobs) {
   const tracks = new Set(checkedValues("track"));
   const notifiedEl = document.querySelector("input[name=notified]:checked");
   const notified = notifiedEl ? notifiedEl.value : "any";
+  const myJobsEl = document.querySelector("input[name=myjobs]:checked");
+  const myJobs = myJobsEl ? myJobsEl.value : "all";
   const employers = selectedEmployers();
   return jobs.filter((job) => {
     if (urgency.size && !urgency.has(job.urgency)) return false;
@@ -277,6 +360,9 @@ function applyFilters(jobs) {
     if (tracks.size && !(job.tracks || []).some((tr) => tracks.has(tr))) return false;
     if (notified === "yes" && !job.notified) return false;
     if (notified === "no" && job.notified) return false;
+    if (myJobs === "interested" || myJobs === "applied") {
+      if (getJobStatus(state.tracker, job.web_sifra) !== myJobs) return false;
+    }
     if (employers && !employers.has(job.employer || "(unknown)")) return false;
     if (!q) return true;
     const blob = [
@@ -439,8 +525,10 @@ function render() {
       const locKey = job.location_label === "City centre" ? "locCentre" : "locZagreb";
       const locTip = job.location_label === "City centre" ? "tipLocCentre" : "tipLocZagreb";
       const urgencyTip = URGENCY_TIP[job.urgency] || "tipUrgencyLater";
-      return `<li>
-        <a class="card" href="${escapeHtml(job.detail_url)}" target="_blank" rel="noopener">
+      const mark = getJobStatus(state.tracker, job.web_sifra);
+      const sifra = escapeHtml(job.web_sifra);
+      return `<li class="card">
+        <a class="card-link" href="${escapeHtml(job.detail_url)}" target="_blank" rel="noopener">
           <h3>${escapeHtml(toDisplayCase(displayTitle(job)))}</h3>
           <p class="employer">${escapeHtml(toDisplayCase(job.employer))}</p>
           <div class="card-location">${escapeHtml(toDisplayCase(job.location_raw || t(locKey)))}</div>
@@ -454,6 +542,10 @@ function render() {
             ${job.notified ? tipSpan("badge muted-pill", t("tgSent"), "tipTelegram") : ""}
           </div>
         </a>
+        <div class="card-marks seg" role="group" aria-label="${escapeHtml(t("myJobs"))}">
+          <button type="button" class="seg-btn mark-btn" data-mark="interested" data-sifra="${sifra}" aria-pressed="${mark === "interested" ? "true" : "false"}">${escapeHtml(t("markInterested"))}</button>
+          <button type="button" class="seg-btn mark-btn" data-mark="applied" data-sifra="${sifra}" aria-pressed="${mark === "applied" ? "true" : "false"}">${escapeHtml(t("markApplied"))}</button>
+        </div>
       </li>`;
     })
     .join("");
@@ -534,6 +626,20 @@ function bind() {
       setTheme(currentTheme() === "dark" ? "light" : "dark");
     });
   }
+  const results = $("results");
+  if (results) {
+    results.addEventListener("click", (event) => {
+      const btn = event.target.closest("button[data-mark]");
+      if (!btn || !results.contains(btn)) return;
+      event.preventDefault();
+      const mark = btn.getAttribute("data-mark");
+      const sifra = btn.getAttribute("data-sifra");
+      if (!mark || !sifra) return;
+      state.tracker = toggleJobMark(state.tracker, sifra, mark);
+      saveTracker(state.tracker);
+      render();
+    });
+  }
 }
 
 try {
@@ -542,6 +648,8 @@ try {
 } catch (err) {
   /* ignore */
 }
+
+state.tracker = loadTracker();
 
 bind();
 applyI18n();
@@ -558,6 +666,9 @@ if (IS_BOARD) {
       const generated = $("generated");
       if (generated) generated.textContent = payload.generated_at || "not yet collected";
       applyCachedTitles(state.jobs);
+      const ids = state.jobs.map((job) => job.web_sifra);
+      state.tracker = pruneTracker(state.tracker, ids);
+      saveTracker(state.tracker);
       renderEmployers(state.jobs);
       render();
       if (state.lang === "en") translateVisibleTitles();
