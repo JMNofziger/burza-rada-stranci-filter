@@ -4,7 +4,7 @@ import io
 import json
 import tempfile
 import unittest
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -13,14 +13,18 @@ from storage import StateStore
 
 
 def _listing(sifra: str, category: str = "IT") -> JobListing:
+    # Relative to today: a fixed 2026-09-21 deadline aged past the 3-day
+    # retention window, so notify's prune_expired deleted the row before the
+    # first-fill assertion could read digest_day.
+    deadline = date.today() + timedelta(days=30)
     return JobListing(
         web_sifra=sifra,
         title=f"Job {sifra}",
         employer="Acme",
         location_raw="ZAGREB",
-        deadline_raw="21.9.2026.",
+        deadline_raw=f"{deadline.day}.{deadline.month}.{deadline.year}.",
         detail_url=f"https://example.test/{sifra}",
-        deadline_date=date(2026, 9, 21),
+        deadline_date=deadline,
         category_label=category,
         foreign_score=3,
         location_score=1,
