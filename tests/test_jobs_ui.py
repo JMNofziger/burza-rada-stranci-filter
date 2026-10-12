@@ -892,9 +892,14 @@ process.stdout.write(JSON.stringify({{ ok: true, key: SESSION_TOKEN_KEY }}));
             "Publish app",
             "origin_mismatch",
             "Deploy jobs board",
+            "Testing",
+            "Test users",
+            "click **My jobs** (not Filters)",
         ):
             self.assertIn(value, self.guide)
         self.assertNotIn("https://jmnofziger.github.io/\n", self.guide)
+        self.assertNotIn("Open **Filters** and find **My jobs**", self.guide)
+        self.assertIn("Do not click **Publish app**", self.guide)
 
 
 if __name__ == "__main__":

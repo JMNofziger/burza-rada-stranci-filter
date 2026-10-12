@@ -4,9 +4,9 @@ A public subset of [HZZ Burza rada](https://burzarada.hzz.hr) ads in **Grad Zagr
 
 **Board:** [jmnofziger.github.io/burza-rada-stranci-filter](https://jmnofziger.github.io/burza-rada-stranci-filter/)
 
-- EN / HR, dark theme, filters (expiry, location, employer, track)
-- Card opens the HZZ listing; Interested/Applied marks stay on your device. Sign in with Google to see them on your other devices.
-- **Method** on the board explains how the subset is built
+- EN / HR, dark theme. **Filters** (expiry, location, employer, track) open from the header; on a phone that button also closes the sidebar.
+- **My jobs** in the header: All, Interested, or Applied. Marks stay on this device. From that panel, save to Google to see them on your other devices. Reloading the same tab stays signed in; closing the tab, or about an hour later, asks you to reconnect.
+- **Method** in the footer explains how this subset is built
 
 **Telegram:** English digest of *new foreigner-coded ads only* (not shortage-only jobs). Titles are translated; employer is the original name plus English in parentheses when it differs.
 

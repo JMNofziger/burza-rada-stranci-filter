@@ -93,7 +93,7 @@ Timeout 180 min. `python main.py full-scrape --phase status --resume-help` print
 
 Redeploys the board when `docs/` HTML/CSS/JS changes, or on Run workflow (use after setting `GOOGLE_CLIENT_ID`). Data-only persist commits skip this workflow; daily/full-scrape deploy Pages themselves.
 
-All three deploy paths run `python3 -m web.sync_config` right before upload. It writes `docs/sync-config.js` from the `GOOGLE_CLIENT_ID` variable into the artifact only; the committed file keeps an empty ID, which hides "Save my list to Google". Marks sync to each user's Drive `appDataFolder` (scope `drive.appdata`); there is no server copy.
+All three deploy paths run `python3 -m web.sync_config` right before upload. It writes `docs/sync-config.js` from the `GOOGLE_CLIENT_ID` variable into the artifact only; the committed file keeps an empty ID, which hides "Save my list to Google". Marks sync to each user's Drive `appDataFolder` (scope `drive.appdata`); there is no server copy. The board header opens **My jobs**; **Method** is a footer link to [METHOD.md](METHOD.md). Drive API use for this stays inside Google's free daily quota.
 
 ### UV list — `uv-list.yml`
 
@@ -139,6 +139,7 @@ Retention (`config.py`): dated ads gone **3 days** after deadline; open-ended go
 | `meta` | e.g. `last_successful_collect_on` |
 | `data/uv-occupations.json` | Official UV occupation list |
 | `docs/jobs.json` | Public board payload |
+| browser `hzz-job-tracker` | Interested/Applied marks. Not in SQLite. Optional copy in the user's Drive `appDataFolder` |
 
 SQLite and `docs/jobs.json` are committed after each successful collect. Stay on git-as-SQLite until history is painful (~1 GB). Public repo Actions minutes are free; do not use macOS/Windows runners.
 
