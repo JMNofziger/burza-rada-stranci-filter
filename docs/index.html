@@ -40,7 +40,39 @@
               d="M16.2 13.8A6.2 6.2 0 0 1 10.1 5a6.4 6.4 0 1 0 6.1 8.8Z"/>
           </svg>
         </button>
-        <a href="https://github.com/JMNofziger/burza-rada-stranci-filter/blob/main/product/METHOD.md" class="btn ghost" data-i18n="method" target="_blank" rel="noopener">Method</a>
+        <div class="menu-wrap">
+          <button type="button" id="my-jobs-open" class="btn ghost" aria-controls="my-jobs" aria-expanded="false" data-i18n="myJobs">My jobs</button>
+          <div id="my-jobs" class="my-jobs-panel" hidden>
+            <div id="sync-box" class="sync-box" hidden>
+              <p id="sync-lead" class="filter-note" data-i18n="syncLead">Use your Google account to see your marks on your phone and other computers.</p>
+              <div id="sync-intro" class="sync-intro" hidden>
+                <p data-i18n="syncIntro">Google will ask to let this site store its own data in your Drive. It can only see this one list, not your files.</p>
+                <button type="button" id="sync-continue" class="btn primary btn-wide" data-i18n="syncContinue">Continue to Google</button>
+                <button type="button" id="sync-cancel" class="btn ghost btn-wide" data-i18n="syncCancel">Not now</button>
+              </div>
+              <div id="sync-inapp" class="sync-intro" hidden>
+                <p data-i18n="syncInApp">To save to Google, open this page in Safari or Chrome.</p>
+                <button type="button" id="sync-copy-link" class="btn ghost btn-wide" data-i18n="syncCopyLink">Copy link</button>
+              </div>
+              <button type="button" id="sync-signin" class="btn primary btn-wide" data-i18n="syncSignIn">Save my list to Google</button>
+              <p id="sync-status" class="filter-note" aria-live="polite" hidden></p>
+              <button type="button" id="sync-signout" class="btn ghost btn-wide" data-i18n="syncSignOut" hidden>Stop saving to Google</button>
+            </div>
+            <div class="my-jobs-choices" role="radiogroup" aria-label="My jobs">
+              <label><input type="radio" name="myjobs" value="all" checked> <span data-i18n="myJobsAll">All</span></label>
+              <label><input type="radio" name="myjobs" value="interested"> <span data-i18n="markInterested">Interested</span></label>
+              <label><input type="radio" name="myjobs" value="applied"> <span data-i18n="markApplied">Applied</span></label>
+            </div>
+            <p id="tracker-note" class="filter-note" data-i18n="trackerNote">Saved in this browser only</p>
+            <details class="more-options">
+              <summary data-i18n="moreOptions">More options</summary>
+              <button type="button" id="backup-download" class="btn ghost btn-wide" data-i18n="backupDownload">Download backup file</button>
+              <button type="button" id="backup-load" class="btn ghost btn-wide" data-i18n="backupLoad">Load backup file</button>
+              <input type="file" id="backup-file" accept="application/json,.json" hidden>
+              <p id="backup-status" class="filter-note" aria-live="polite"></p>
+            </details>
+          </div>
+        </div>
         <button type="button" id="filter-open" class="btn ghost" aria-controls="filters" aria-expanded="false" data-i18n="filters">
           Filters
         </button>
@@ -81,35 +113,6 @@
         <label><input type="radio" name="notified" value="yes"> <span data-i18n="tgYes">Already sent</span></label>
       </fieldset>
       <fieldset>
-        <legend data-i18n="myJobs">My jobs</legend>
-        <div id="sync-box" class="sync-box" hidden>
-          <p id="sync-lead" class="filter-note" data-i18n="syncLead">Use your Google account to see your marks on your phone and other computers.</p>
-          <div id="sync-intro" class="sync-intro" hidden>
-            <p data-i18n="syncIntro">Google will ask to let this site store its own data in your Drive. It can only see this one list, not your files.</p>
-            <button type="button" id="sync-continue" class="btn primary btn-wide" data-i18n="syncContinue">Continue to Google</button>
-            <button type="button" id="sync-cancel" class="btn ghost btn-wide" data-i18n="syncCancel">Not now</button>
-          </div>
-          <div id="sync-inapp" class="sync-intro" hidden>
-            <p data-i18n="syncInApp">To save to Google, open this page in Safari or Chrome.</p>
-            <button type="button" id="sync-copy-link" class="btn ghost btn-wide" data-i18n="syncCopyLink">Copy link</button>
-          </div>
-          <button type="button" id="sync-signin" class="btn primary btn-wide" data-i18n="syncSignIn">Save my list to Google</button>
-          <p id="sync-status" class="filter-note" aria-live="polite" hidden></p>
-          <button type="button" id="sync-signout" class="btn ghost btn-wide" data-i18n="syncSignOut" hidden>Stop saving to Google</button>
-        </div>
-        <label><input type="radio" name="myjobs" value="all" checked> <span data-i18n="myJobsAll">All</span></label>
-        <label><input type="radio" name="myjobs" value="interested"> <span data-i18n="markInterested">Interested</span></label>
-        <label><input type="radio" name="myjobs" value="applied"> <span data-i18n="markApplied">Applied</span></label>
-        <p id="tracker-note" class="filter-note" data-i18n="trackerNote">Saved in this browser only</p>
-        <details class="more-options">
-          <summary data-i18n="moreOptions">More options</summary>
-          <button type="button" id="backup-download" class="btn ghost btn-wide" data-i18n="backupDownload">Download backup file</button>
-          <button type="button" id="backup-load" class="btn ghost btn-wide" data-i18n="backupLoad">Load backup file</button>
-          <input type="file" id="backup-file" accept="application/json,.json" hidden>
-          <p id="backup-status" class="filter-note" aria-live="polite"></p>
-        </details>
-      </fieldset>
-      <fieldset>
         <legend data-i18n="employer">Employer</legend>
         <div id="employer-filters" class="check-list"></div>
       </fieldset>
@@ -137,6 +140,10 @@
       <ol id="results" class="results"></ol>
     </main>
   </div>
+
+  <footer class="site-footer">
+    <a href="https://github.com/JMNofziger/burza-rada-stranci-filter/blob/main/product/METHOD.md" data-i18n="method" target="_blank" rel="noopener">Method</a>
+  </footer>
 
   <script src="./sync-config.js"></script>
   <script src="./app.js"></script>

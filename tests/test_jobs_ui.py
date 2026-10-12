@@ -508,6 +508,18 @@ class PublicBoardStaticTests(unittest.TestCase):
         self.assertIn('markApplied: "Prijavljeno"', self.js)
         self.assertIn("Saved in this browser only", self.js + self.html)
         self.assertIn("Samo u ovom pregledniku", self.js)
+        header = self.html.split("<header", 1)[1].split("</header>", 1)[0]
+        filters = self.html.split('id="filter-form"', 1)[1].split("</form>", 1)[0]
+        footer = self.html.split("<footer", 1)[1].split("</footer>", 1)[0]
+        self.assertIn('id="my-jobs-open"', header)
+        self.assertIn('id="my-jobs"', header)
+        self.assertNotIn('name="myjobs"', filters)
+        self.assertIn('class="site-footer"', self.html)
+        self.assertIn("product/METHOD.md", footer)
+        self.assertNotIn("product/METHOD.md", header)
+        self.assertIn("toggleDrawer", self.js)
+        self.assertIn('filterOpen.addEventListener("click", toggleDrawer)', self.js)
+        self.assertIn("function toggleMyJobs", self.js)
 
     def test_tracker_storage_key_and_graceful_failure(self):
         self.assertIn('TRACKER_KEY = "hzz-job-tracker"', self.js)
