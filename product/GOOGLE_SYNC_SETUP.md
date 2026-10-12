@@ -55,12 +55,15 @@ Do **not** upload a logo anywhere. A logo makes Google review the app, which tak
 
 4. Tick the row ending in `.../auth/drive.appdata`. Click **Update**, then **Save** at the bottom of the page.
 
-## 5. Open it to everyone
+## 5. List who can sign in
+
+Leave the app in **Testing**. Do not click **Publish app**. Google asks for a homepage and a privacy policy on a domain you own before it will publish, and `github.io` cannot be verified, so Publish cannot be finished for this board.
 
 1. Left menu: **Audience**.
-2. Under "Publishing status", click **Publish app**, then **Confirm**.
+2. Publishing status should say **Testing**.
+3. Under **Test users**, click **Add users** and add each Gmail address that should sign in.
 
-If you skip this, only people you list by hand can sign in, and they have to sign in again every 7 days.
+Only those addresses can sign in. About every 7 days Google shows "Google hasn't verified this app." Click **Advanced**, then **Go to Zagreb jobs board (unsafe)**.
 
 ## 6. Create the website key
 
@@ -104,8 +107,10 @@ If you skip this, only people you list by hand can sign in, and they have to sig
 ## 9. Check it
 
 1. Open [the board](https://jmnofziger.github.io/burza-rada-stranci-filter/) (refresh if it was already open).
-2. Open **Filters** and find **My jobs**. You should see **Save my list to Google**.
-3. Click it, then **Continue to Google**, and sign in. You should see "Saved to Google" with the time.
+2. In the header, click **My jobs** (not Filters). You should see **Save my list to Google**.
+3. Click it, then **Continue to Google**, and sign in with an address from step 5. You should see "Saved to Google" with the time.
+
+Reloading this browser tab stays signed in. Closing the tab, or about an hour later, shows **Reconnect to Google**. Marks stay on the device either way.
 
 Google can take up to 5 minutes to apply new settings. If the first try fails, wait a few minutes and try again.
 
@@ -116,7 +121,7 @@ Google can take up to 5 minutes to apply new settings. If the first try fails, w
 | What you see | What to do |
 |--------------|------------|
 | "Error 400: origin_mismatch" | In step 6, the address has a typo. It must be exactly `https://jmnofziger.github.io`, with `https`, and no slash at the end. |
-| "Access blocked: this app has not completed verification" or "not a test user" | Step 5 was not finished. Publish the app. |
+| "Access blocked: this app has not completed verification" or "not a test user" | That Google account is not in **Test users** (step 5). Add it. Do not click **Publish app**. On the warning screen, **Advanced** then **Go to Zagreb jobs board** is expected. |
 | "Google didn't allow saving" on the board | During sign-in, the box that lets the site save its list was unticked. Click the button again and leave it ticked. |
 | No "Save my list to Google" button | In step 7 the value went into **Secrets** instead of **Variables**, or the name is not exactly `GOOGLE_CLIENT_ID`, or step 8 was not run afterwards. |
 | "Open this page in Safari or Chrome" | Expected inside Telegram and other apps' built-in browsers. Google blocks sign-in there. Tap **Copy link** and open it in a normal browser. |
