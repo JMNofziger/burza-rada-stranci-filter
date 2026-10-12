@@ -522,7 +522,34 @@ function setTheme(theme) {
   }
 }
 
+function openMyJobs() {
+  closeDrawer();
+  const panel = $("my-jobs");
+  const btn = $("my-jobs-open");
+  if (panel) {
+    panel.hidden = false;
+    const bar = document.querySelector(".topbar");
+    const belowHeader = window.matchMedia("(max-width: 859px)").matches && bar;
+    panel.style.top = belowHeader ? bar.offsetHeight + 8 + "px" : "";
+  }
+  if (btn) btn.setAttribute("aria-expanded", "true");
+}
+
+function closeMyJobs() {
+  const panel = $("my-jobs");
+  const btn = $("my-jobs-open");
+  if (panel) panel.hidden = true;
+  if (btn) btn.setAttribute("aria-expanded", "false");
+}
+
+function toggleMyJobs() {
+  const panel = $("my-jobs");
+  if (panel && !panel.hidden) closeMyJobs();
+  else openMyJobs();
+}
+
 function openDrawer() {
+  closeMyJobs();
   const filters = $("filters");
   const backdrop = $("backdrop");
   const openBtn = $("filter-open");
@@ -538,6 +565,12 @@ function closeDrawer() {
   if (filters) filters.classList.remove("open");
   if (backdrop) backdrop.hidden = true;
   if (openBtn) openBtn.setAttribute("aria-expanded", "false");
+}
+
+function toggleDrawer() {
+  const filters = $("filters");
+  if (filters && filters.classList.contains("open")) closeDrawer();
+  else openDrawer();
 }
 
 function checkedValues(name) {
@@ -1200,9 +1233,23 @@ function bind() {
   const langEn = $("lang-en");
   const langHr = $("lang-hr");
   const themeToggle = $("theme-toggle");
-  if (filterOpen) filterOpen.addEventListener("click", openDrawer);
+  if (filterOpen) filterOpen.addEventListener("click", toggleDrawer);
   if (filterClose) filterClose.addEventListener("click", closeDrawer);
   if (backdrop) backdrop.addEventListener("click", closeDrawer);
+  const myJobsOpen = $("my-jobs-open");
+  const myJobsPanel = $("my-jobs");
+  if (myJobsOpen) myJobsOpen.addEventListener("click", toggleMyJobs);
+  if (myJobsPanel) myJobsPanel.addEventListener("change", render);
+  document.addEventListener("click", (event) => {
+    if (!myJobsPanel || myJobsPanel.hidden) return;
+    if (myJobsPanel.contains(event.target) || (myJobsOpen && myJobsOpen.contains(event.target))) return;
+    closeMyJobs();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    closeMyJobs();
+    closeDrawer();
+  });
   if (search) search.addEventListener("input", render);
   if (sort) sort.addEventListener("change", render);
   if (filterForm) filterForm.addEventListener("change", render);

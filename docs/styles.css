@@ -104,6 +104,25 @@ h1 {
   gap: 0.55rem;
   align-items: center;
 }
+.menu-wrap { position: relative; }
+.my-jobs-panel {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  right: 0;
+  z-index: 60;
+  width: min(92vw, 320px);
+  padding: 0.85rem 1rem 1rem;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.my-jobs-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+}
 
 .seg {
   display: flex;
@@ -486,6 +505,18 @@ main {
   padding: 0.05em 0.35em;
 }
 
+.site-footer {
+  margin-top: auto;
+  padding: 0.85rem var(--pad) 1.15rem;
+  text-align: center;
+}
+.site-footer a {
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-decoration: none;
+}
+.site-footer a:hover { color: var(--accent); }
+
 .empty, .error {
   padding: 1rem;
   border-radius: 12px;
@@ -497,6 +528,15 @@ main {
   background: color-mix(in srgb, var(--danger) 14%, var(--bg-elev));
   color: var(--danger);
   border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+}
+
+@media (max-width: 859px) {
+  .my-jobs-panel {
+    position: fixed;
+    right: 0.75rem;
+    left: 0.75rem;
+    width: auto;
+  }
 }
 
 @media (min-width: 860px) {
