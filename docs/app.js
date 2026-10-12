@@ -526,7 +526,12 @@ function openMyJobs() {
   closeDrawer();
   const panel = $("my-jobs");
   const btn = $("my-jobs-open");
-  if (panel) panel.hidden = false;
+  if (panel) {
+    panel.hidden = false;
+    const bar = document.querySelector(".topbar");
+    const belowHeader = window.matchMedia("(max-width: 859px)").matches && bar;
+    panel.style.top = belowHeader ? bar.offsetHeight + 8 + "px" : "";
+  }
   if (btn) btn.setAttribute("aria-expanded", "true");
 }
 

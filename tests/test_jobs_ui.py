@@ -520,6 +520,7 @@ class PublicBoardStaticTests(unittest.TestCase):
         self.assertIn("toggleDrawer", self.js)
         self.assertIn('filterOpen.addEventListener("click", toggleDrawer)', self.js)
         self.assertIn("function toggleMyJobs", self.js)
+        self.assertIn("bar.offsetHeight + 8", self.js)
 
     def test_tracker_storage_key_and_graceful_failure(self):
         self.assertIn('TRACKER_KEY = "hzz-job-tracker"', self.js)

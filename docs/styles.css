@@ -533,8 +533,9 @@ main {
 @media (max-width: 859px) {
   .my-jobs-panel {
     position: fixed;
-    top: 4.75rem;
     right: 0.75rem;
+    left: 0.75rem;
+    width: auto;
   }
 }
 
