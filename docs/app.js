@@ -815,6 +815,8 @@ const GOOGLE_CLIENT_ID =
 const SYNC_FLAG_KEY = "hzz-sync-enabled";
 const SYNC_INTRO_KEY = "hzz-sync-intro-seen";
 const MARK_HINT_KEY = "hzz-mark-hint-seen";
+// Access token for this tab only. sessionStorage dies when the tab closes.
+const SESSION_TOKEN_KEY = "hzz-google-session";
 const GIS_SRC = "https://accounts.google.com/gsi/client";
 // Google blocks OAuth inside in-app browsers (Telegram, Facebook, Instagram, Android WebView).
 const IN_APP_UA_RE = /Telegram|FBAN|FBAV|Instagram|Line\/|LinkedInApp|Snapchat|; wv\)/i;
@@ -911,6 +913,50 @@ function requestToken() {
   });
 }
 
+function readSessionToken() {
+  try {
+    const raw = JSON.parse(sessionStorage.getItem(SESSION_TOKEN_KEY) || "null");
+    if (!raw || typeof raw.token !== "string" || !raw.token) return null;
+    if (typeof raw.expiresAt !== "number" || !Number.isFinite(raw.expiresAt)) return null;
+    return raw;
+  } catch (err) {
+    return null;
+  }
+}
+
+function writeSessionToken(token, expiresAt) {
+  try {
+    if (!token) sessionStorage.removeItem(SESSION_TOKEN_KEY);
+    else sessionStorage.setItem(SESSION_TOKEN_KEY, JSON.stringify({ token, expiresAt }));
+  } catch (err) {
+    /* private mode / quota: this page view still works in memory */
+  }
+}
+
+function rememberToken(token, expiresAt) {
+  sync.token = token;
+  sync.tokenExpiresAt = expiresAt;
+  writeSessionToken(token, expiresAt);
+}
+
+function forgetToken() {
+  sync.token = null;
+  sync.tokenExpiresAt = 0;
+  writeSessionToken(null, 0);
+}
+
+function restoreSessionToken() {
+  const saved = readSessionToken();
+  if (!saved) return false;
+  if (Date.now() >= saved.expiresAt - 60000) {
+    forgetToken();
+    return false;
+  }
+  sync.token = saved.token;
+  sync.tokenExpiresAt = saved.expiresAt;
+  return true;
+}
+
 function hasValidToken() {
   return Boolean(sync.token) && Date.now() < sync.tokenExpiresAt - 60000;
 }
@@ -943,15 +989,14 @@ async function connectGoogle() {
     setSyncStatus("permission");
     return;
   }
-  sync.token = resp.access_token;
-  sync.tokenExpiresAt = Date.now() + (Number(resp.expires_in) || 3600) * 1000;
+  rememberToken(resp.access_token, Date.now() + (Number(resp.expires_in) || 3600) * 1000);
   writeFlag(SYNC_FLAG_KEY, true);
   await runSync();
 }
 
 function stopGoogle() {
   const token = sync.token;
-  sync.token = null;
+  forgetToken();
   sync.fileId = null;
   sync.savedAt = null;
   clearTimeout(sync.timer);
@@ -967,7 +1012,7 @@ function liveJobIds() {
 async function runSync() {
   if (!GOOGLE_CLIENT_ID || !readFlag(SYNC_FLAG_KEY)) return;
   if (!hasValidToken()) {
-    sync.token = null;
+    forgetToken();
     setSyncStatus("expired");
     return;
   }
@@ -998,7 +1043,7 @@ async function runSync() {
     sync.running = false;
     sync.again = false;
     if (err.status === 401) {
-      sync.token = null;
+      forgetToken();
       setSyncStatus("expired");
     } else {
       setSyncStatus("offline");
@@ -1095,6 +1140,9 @@ function initSync() {
   }
   if (isInAppBrowser()) {
     sync.status = "inapp";
+  } else if (restoreSessionToken()) {
+    sync.status = "saving";
+    scheduleSync(0);
   } else if (readFlag(SYNC_FLAG_KEY)) {
     sync.status = "resume";
     loadGis().catch(() => {});

@@ -142,4 +142,4 @@ To turn the feature off, delete the `GOOGLE_CLIENT_ID` variable and run step 8 a
 
 3. Open `http://localhost:8000`. Do not commit `docs/sync-config.js` with a real ID (`git checkout docs/sync-config.js` resets it).
 
-Technical notes: Google Identity Services token client, scope `https://www.googleapis.com/auth/drive.appdata`, one file `hzz-job-tracker.json` in the user's Drive `appDataFolder`. The access token lives in memory only. Users can remove the hidden data in Google Drive > Settings > Manage apps.
+Technical notes: Google Identity Services token client, scope `https://www.googleapis.com/auth/drive.appdata`, one file `hzz-job-tracker.json` in the user's Drive `appDataFolder`. The access token is kept in `sessionStorage` for this browser tab (survives reload, gone when the tab closes) and is dropped an hour after Google issued it. It is not written to `localStorage`. Users can remove the hidden data in Google Drive > Settings > Manage apps.

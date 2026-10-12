@@ -783,17 +783,62 @@ class GoogleSyncStaticTests(unittest.TestCase):
         self.assertLess(self.html.find("./sync-config.js"), self.html.find("./app.js"))
         self.assertIn("window.HZZ_GOOGLE_CLIENT_ID", self.js)
 
-    def test_token_never_persisted(self):
+    def test_token_lasts_for_the_browser_tab_only(self):
+        self.assertIn('SESSION_TOKEN_KEY = "hzz-google-session"', self.js)
+        self.assertIn("sessionStorage.getItem(SESSION_TOKEN_KEY)", self.js)
+        self.assertIn("sessionStorage.setItem(SESSION_TOKEN_KEY", self.js)
+        self.assertIn("sessionStorage.removeItem(SESSION_TOKEN_KEY)", self.js)
+        self.assertIn("rememberToken(resp.access_token", self.js)
+        self.assertIn("restoreSessionToken()", self.js)
+        self.assertNotIn("localStorage.setItem(SESSION_TOKEN_KEY", self.js)
+        self.assertNotIn("localStorage.getItem(SESSION_TOKEN_KEY)", self.js)
         for line in self.js.splitlines():
-            if "sync.token" in line or "access_token" in line:
-                self.assertNotIn("Storage", line)
-                self.assertNotIn("setItem", line)
-        self.assertNotIn("sessionStorage", self.js)
+            if "access_token" in line:
+                self.assertNotIn("localStorage", line)
+
+    def test_session_token_survives_reload_until_tab_close_or_expiry(self):
+        helpers = _extract_js_functions(
+            "readSessionToken",
+            "writeSessionToken",
+            "rememberToken",
+            "forgetToken",
+            "restoreSessionToken",
+            "hasValidToken",
+        )
+        script = f"""
+{_js_consts("SESSION_TOKEN_KEY")}
+const store = {{}};
+const sessionStorage = {{
+  getItem: (k) => (Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null),
+  setItem: (k, v) => {{ store[k] = v; }},
+  removeItem: (k) => {{ delete store[k]; }},
+}};
+const sync = {{ token: null, tokenExpiresAt: 0 }};
+{helpers}
+const now = 1000000;
+Date.now = () => now;
+rememberToken("abc", now + 3600000);
+if (!sessionStorage.getItem(SESSION_TOKEN_KEY).includes("abc")) throw new Error("not stored");
+sync.token = null;
+sync.tokenExpiresAt = 0;
+if (!restoreSessionToken() || sync.token !== "abc" || !hasValidToken()) throw new Error("restore failed");
+Date.now = () => now + 3600000 - 30000;
+if (restoreSessionToken()) throw new Error("near expiry should not restore");
+if (sessionStorage.getItem(SESSION_TOKEN_KEY) !== null) throw new Error("stale token kept");
+Date.now = () => now;
+rememberToken("xyz", now + 3600000);
+forgetToken();
+if (sync.token !== null || sessionStorage.getItem(SESSION_TOKEN_KEY) !== null) throw new Error("forget failed");
+sessionStorage.setItem(SESSION_TOKEN_KEY, "not-json");
+if (readSessionToken() !== null) throw new Error("bad json accepted");
+process.stdout.write(JSON.stringify({{ ok: true, key: SESSION_TOKEN_KEY }}));
+"""
+        self.assertEqual(_run_node(script)["ok"], True)
 
     def test_expired_session_shows_reconnect(self):
         self.assertRegex(
             self.js,
-            r'if \(err\.status === 401\) \{\s*sync\.token = null;\s*setSyncStatus\("expired"\);',
+            r'if \(err\.status === 401\) \{\s*forgetToken\(\);\s*setSyncStatus\("expired"\);',
         )
         self.assertIn('t(reconnect ? "syncReconnect" : "syncSignIn")', self.js)
         self.assertIn('syncReconnect: "Reconnect to Google"', self.js)
