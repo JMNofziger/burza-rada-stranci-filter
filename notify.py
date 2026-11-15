@@ -124,6 +124,13 @@ def send_telegram_digest(
         _send_with_retry(token, chat_id, chunk)
 
 
+# Connection resets and 5xx are transient. A single TLS reset used to abort
+# the whole daily collect (and skip the state commit) after the scrape had
+# already finished. 4xx other than 429 is a bad payload and will not heal.
+_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+_TRANSIENT_ERRORS = (requests.ConnectionError, requests.Timeout)
+
+
 def _send_with_retry(
     token: str,
     chat_id: str,
@@ -139,17 +146,47 @@ def _send_with_retry(
     }
     if parse_mode:
         payload["parse_mode"] = parse_mode
+    last_error: BaseException | None = None
     for attempt in range(1, max_attempts + 1):
-        resp = requests.post(url, json=payload, timeout=20)
-        if resp.status_code == 200:
-            return
-        if resp.status_code == 429:
-            retry_after = resp.json().get("parameters", {}).get("retry_after", 5)
-            log.warning("Telegram rate-limited us; sleeping %ss", retry_after)
-            time.sleep(retry_after)
-            continue
-        log.error("Telegram send failed (%s): %s", resp.status_code, resp.text)
-        resp.raise_for_status()
+        try:
+            resp = requests.post(url, json=payload, timeout=20)
+        except _TRANSIENT_ERRORS as exc:
+            last_error = exc
+            log.warning(
+                "Telegram send attempt %s/%s hit a network error: %s",
+                attempt,
+                max_attempts,
+                exc,
+            )
+        else:
+            if resp.status_code == 200:
+                return
+            if resp.status_code not in _RETRYABLE_STATUS:
+                log.error("Telegram send failed (%s): %s", resp.status_code, resp.text)
+                resp.raise_for_status()
+            last_error = RuntimeError(
+                f"Telegram send failed ({resp.status_code}): {resp.text}"
+            )
+            log.warning(
+                "Telegram send attempt %s/%s got HTTP %s",
+                attempt,
+                max_attempts,
+                resp.status_code,
+            )
+            if resp.status_code == 429 and attempt < max_attempts:
+                retry_after = 5
+                try:
+                    retry_after = int(
+                        resp.json().get("parameters", {}).get("retry_after", 5)
+                    )
+                except (ValueError, TypeError, AttributeError):
+                    retry_after = 5
+                time.sleep(retry_after)
+                continue
+        if attempt < max_attempts:
+            time.sleep(min(8, 2 ** (attempt - 1)))
+    if last_error:
+        raise last_error
     raise RuntimeError(f"Telegram send failed after {max_attempts} attempts")
 
 

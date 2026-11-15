@@ -6,6 +6,8 @@ from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
+import requests
+
 import config
 import notify
 from main import should_publish_new_matches
@@ -159,6 +161,71 @@ class NotifyTests(unittest.TestCase):
             info = notify.verify_telegram_connection("tok", "111")
         self.assertEqual(info["bot_username"], "jobs_bot")
         self.assertEqual(info["chat_id"], 111)
+
+    def test_send_retries_connection_reset_then_succeeds(self):
+        calls = {"n": 0}
+
+        class Ok:
+            status_code = 200
+            text = "ok"
+
+            def raise_for_status(self):
+                return None
+
+        def fake_post(*args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] < 3:
+                raise requests.ConnectionError("Connection reset by peer")
+            return Ok()
+
+        with patch("notify.requests.post", side_effect=fake_post), patch("notify.time.sleep") as sleep:
+            notify._send_with_retry("token", "1", "hello", parse_mode=None)
+        self.assertEqual(calls["n"], 3)
+        self.assertEqual(sleep.call_count, 2)
+
+    def test_send_gives_up_after_repeated_connection_resets(self):
+        with patch(
+            "notify.requests.post",
+            side_effect=requests.ConnectionError("Connection reset by peer"),
+        ), patch("notify.time.sleep") as sleep:
+            with self.assertRaises(requests.ConnectionError):
+                notify._send_with_retry("token", "1", "hello", max_attempts=3, parse_mode=None)
+        self.assertEqual(sleep.call_count, 2)
+
+    def test_send_retries_server_error_then_succeeds(self):
+        calls = {"n": 0}
+
+        class Resp:
+            def __init__(self, status):
+                self.status_code = status
+                self.text = "upstream" if status != 200 else "ok"
+
+            def raise_for_status(self):
+                if self.status_code >= 400:
+                    raise requests.HTTPError(str(self.status_code))
+
+        def fake_post(*args, **kwargs):
+            calls["n"] += 1
+            return Resp(502 if calls["n"] == 1 else 200)
+
+        with patch("notify.requests.post", side_effect=fake_post), patch("notify.time.sleep") as sleep:
+            notify._send_with_retry("token", "1", "hello", parse_mode=None)
+        self.assertEqual(calls["n"], 2)
+        sleep.assert_called_once_with(1)
+
+    def test_send_does_not_retry_client_errors(self):
+        class Bad:
+            status_code = 400
+            text = "Bad Request: can't parse entities"
+
+            def raise_for_status(self):
+                raise requests.HTTPError("400")
+
+        with patch("notify.requests.post", return_value=Bad()) as post, patch("notify.time.sleep") as sleep:
+            with self.assertRaises(requests.HTTPError):
+                notify._send_with_retry("token", "1", "hello", parse_mode=None)
+        self.assertEqual(post.call_count, 1)
+        sleep.assert_not_called()
 
 
 class StorageNewMatchTests(unittest.TestCase):
