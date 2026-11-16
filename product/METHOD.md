@@ -2,7 +2,7 @@
 
 Subset of public [HZZ Burza rada](https://burzarada.hzz.hr) listings for **Grad Zagreb**. Not the full catalogue. Not a work-permit or sponsorship guarantee.
 
-Two **independent** inclusion tracks. A listing is on the board if **location_score > 0** and **at least one** track hits. Telegram digests still publish **track A only**.
+Two **independent** inclusion tracks. A listing is on the board if **location_score > 0** and **at least one** track hits. Telegram publishes either track when the HZZ settlement label is exactly `ZAGREB` (the only label inside a 15-minute tram ride of Trg bana Josipa Jelačića). Other settlement labels stay on the board. A shortage ad in Telegram is tagged Shortage.
 
 Official occupation titles live in [`data/uv-occupations.json`](../data/uv-occupations.json). Keyword weights live in [`config.py`](../config.py) (`FOREIGNER_KEYWORDS`). Matching code: [`scoring.py`](../scoring.py), [`shortage.py`](../shortage.py).
 
@@ -86,7 +86,7 @@ Match the listing **title** to the official HZZ Upravno vijeće list of occupati
 - Gendered HZZ titles (`PROGRAMER / KA`, `ZAVARIVAČ / ICA`) are normalized before match.
 - A hit does **not** mean the employer will sponsor or that Art. 99 (turnover, domestic-staff ratio) is satisfied. It means the **occupation title** is on the TTR-exemption list.
 
-Shortage-only listings are on the board and tagged. They are **not** sent on Telegram.
+Shortage listings are on the board and tagged. Telegram sends them when the settlement label is `ZAGREB`, with a Shortage tag. Ads already stored before that rule are sent once, and only when the deadline is after 2026-11-30.
 
 ---
 
@@ -119,7 +119,7 @@ The HZZ mirror PDF is not byte-identical to the MUP host; hashing uses `sourceUr
 
 Podskup javnih oglasa HZZ Burze rada za **Grad Zagreb**. Nije cijeli katalog. Nije jamstvo dozvole ni sponzorstva.
 
-Dva **odvojena** kolosijeka. Oglas je na ploči ako je `location_score > 0` i pogodi **barem jedan** kolosijek. Telegram šalje samo **kolosijek A**.
+Dva **odvojena** kolosijeka. Oglas je na ploči ako je `location_score > 0` i pogodi **barem jedan** kolosijek. Telegram šalje oba kolosijeka kad je naselje točno `ZAGREB`. Ostala naselja ostaju na ploči. Deficitarno zanimanje u Telegramu ima oznaku Shortage.
 
 ### Kolosijek A — strani rezultat (signal iz teksta oglasa)
 

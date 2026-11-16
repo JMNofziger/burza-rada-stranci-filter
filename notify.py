@@ -54,9 +54,17 @@ def format_job_line(job, translate: Callable[[str], str | None] | None = None) -
     title_md = escape_markdown_v2(title_en)
     employer_md = escape_markdown_v2(_employer_line(employer, employer_en))
     deadline = escape_markdown_v2(job["deadline_date"] or "open")
-    badge = "City centre" if job["location_score"] == 2 else "Zagreb"
+    place = "City centre" if job["location_score"] == 2 else "Zagreb"
+    badge = f"Shortage · {place}" if _is_shortage(job) else place
     url = job["detail_url"]
     return f"*{title_md}*\n{employer_md} · {badge} · deadline: {deadline}\n[Open listing]({url})"
+
+
+def _is_shortage(job: dict) -> bool:
+    raw = job.get("shortage_match")
+    if isinstance(raw, str):
+        return raw.strip() not in {"", "0"}
+    return bool(raw)
 
 
 def as_job_dict(job) -> dict:
@@ -71,6 +79,7 @@ def as_job_dict(job) -> dict:
         "deadline_date": deadline.isoformat() if deadline else None,
         "location_score": job.location_score,
         "detail_url": job.detail_url,
+        "shortage_match": bool(getattr(job, "shortage_match", False)),
     }
 
 

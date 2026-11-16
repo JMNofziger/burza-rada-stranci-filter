@@ -132,7 +132,7 @@ Retention (`config.py`): dated ads gone **3 days** after deadline; open-ended go
 
 | Table / file | Role |
 |--------------|------|
-| `jobs` | Matches (Telegram track A + board) |
+| `jobs` | Matches. Board keeps every Grad Zagreb track. Telegram keeps plain `ZAGREB` plus foreigner-text or a UV shortage title |
 | `translations` | Cached HR→EN for Telegram |
 | `inspected` | Every listed `WebSifra` |
 | `scrape_runs` / `scrape_categories` | Full-scrape checkpoints |

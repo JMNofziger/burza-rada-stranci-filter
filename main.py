@@ -22,7 +22,7 @@ import json
 import logging
 import os
 import sys
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -34,7 +34,7 @@ import scoring
 import shortage
 from http_client import build_session
 from scraper import JobListing, fetch_detail, iter_zagreb_candidates, parse_hr_date
-from storage import StateStore
+from storage import StateStore, telegram_settlement_allowed
 from web.export import write_jobs_json
 
 log = logging.getLogger("hzz_pipeline")
@@ -95,7 +95,7 @@ def _apply_scores(detailed: JobListing) -> bool:
 def promote_shortage_from_inspected(store: StateStore) -> int:
     """Title-match UV occupations on inspected rows; upsert shortage-track jobs.
 
-    Does not fetch details. Telegram still only publishes foreigner-text matches.
+    Does not fetch details. Telegram publishes the Zagreb settlement only.
     """
     uv_list = shortage.load_uv_list()
     added = 0
@@ -205,19 +205,76 @@ def run_bootstrap() -> None:
         # Dispatch is left to `daily` so launch-week pacing stays one bucket/day.
 
 
+def _ensure_shortage_cutoff(store: StateStore) -> str:
+    """Stamp the moment shortage ads start counting as newly appeared."""
+    existing = store.get_meta(config.TELEGRAM_SHORTAGE_INCLUDE_AFTER_KEY)
+    if existing:
+        return existing
+    stamp = datetime.utcnow().isoformat(timespec="seconds")
+    store.set_meta(config.TELEGRAM_SHORTAGE_INCLUDE_AFTER_KEY, stamp)
+    return stamp
+
+
+def _telegram_backlog_row(row) -> bool:
+    if not telegram_settlement_allowed(row["location_raw"]):
+        return False
+    if int(row["foreign_score"] or 0) >= config.FOREIGN_SCORE_THRESHOLD:
+        return True
+    return bool(int(row["shortage_match"] or 0))
+
+
+def _dispatch_telegram(store: StateStore, token: str, chat_id: str) -> None:
+    """Send the one-time shortage catch-up, then today's new Zagreb matches."""
+    promote_shortage_from_inspected(store)
+    cutoff = _ensure_shortage_cutoff(store)
+    backfill = store.shortage_backfill_matches(
+        deadline_after=config.SHORTAGE_BACKFILL_DEADLINE_AFTER,
+        seen_before=cutoff,
+    )
+    if backfill:
+        log.info(
+            "Shortage backfill: %d Zagreb listings with deadline after %s.",
+            len(backfill),
+            config.SHORTAGE_BACKFILL_DEADLINE_AFTER,
+        )
+        notify.send_telegram_digest(
+            token,
+            chat_id,
+            _telegram_label("Shortage listings"),
+            backfill,
+            store=store,
+        )
+        for row in backfill:
+            store.mark_notified(row["web_sifra"])
+
+    if should_publish_new_matches():
+        rows = store.unnotified_new_matches()
+        if rows or (config.NOTIFY_WHEN_NO_NEW_MATCHES and not backfill):
+            notify.send_new_matches_report(
+                token, chat_id, rows, title=_new_listings_title(store), store=store
+            )
+        for row in rows:
+            store.mark_notified(row["web_sifra"])
+    else:
+        log.info(
+            "Collect-only day (NEW_MATCH_PUBLISH_CADENCE=%s); %d unpublished new matches stored.",
+            config.NEW_MATCH_PUBLISH_CADENCE,
+            len(store.unnotified_new_matches()),
+        )
+    _publish_next_backlog_day(store, token, chat_id)
+
+
 def run_daily() -> None:
     session = build_session()
     token, chat_id = get_telegram_creds()
     with StateStore() as store:
+        _ensure_shortage_cutoff(store)
         if store.is_empty():
             log.info("Empty state DB — seeding existing matches as backlog, not as 'new'.")
             listings = collect_and_score(session, store, skip_seen=False)
             log.info("Initial seed: %d matching Zagreb listings.", len(listings))
             seed_backlog(listings, store)
-            notify.send_new_matches_report(
-                token, chat_id, [], title=_new_listings_title(store), store=store
-            )
-            _publish_next_backlog_day(store, token, chat_id)
+            _dispatch_telegram(store, token, chat_id)
             _finish_successful_collect(store)
             return
 
@@ -226,22 +283,7 @@ def run_daily() -> None:
         for job in new_listings:
             store.upsert_job(job, digest_day=None)
 
-        if should_publish_new_matches():
-            rows = store.unnotified_new_matches()
-            if rows or config.NOTIFY_WHEN_NO_NEW_MATCHES:
-                notify.send_new_matches_report(
-                    token, chat_id, rows, title=_new_listings_title(store), store=store
-                )
-            for row in rows:
-                store.mark_notified(row["web_sifra"])
-        else:
-            log.info(
-                "Collect-only day (NEW_MATCH_PUBLISH_CADENCE=%s); %d unpublished new matches stored.",
-                config.NEW_MATCH_PUBLISH_CADENCE,
-                len(store.unnotified_new_matches()),
-            )
-
-        _publish_next_backlog_day(store, token, chat_id)
+        _dispatch_telegram(store, token, chat_id)
         _finish_successful_collect(store)
 
 
@@ -250,7 +292,11 @@ def _publish_next_backlog_day(store: StateStore, token: str, chat_id: str) -> No
     today_bucket_day = _current_bootstrap_day(store)
     if not today_bucket_day:
         return
-    rows = [r for r in store.jobs_for_digest_day(today_bucket_day) if r["notified_at"] is None]
+    rows = [
+        r
+        for r in store.jobs_for_digest_day(today_bucket_day)
+        if r["notified_at"] is None and _telegram_backlog_row(r)
+    ]
     if not rows:
         return
     notify.send_telegram_digest(
@@ -263,7 +309,7 @@ def _publish_next_backlog_day(store: StateStore, token: str, chat_id: str) -> No
 def _current_bootstrap_day(store: StateStore) -> int | None:
     for day in range(1, config.DIGEST_DAYS + 1):
         rows = store.jobs_for_digest_day(day)
-        if any(r["notified_at"] is None for r in rows):
+        if any(r["notified_at"] is None and _telegram_backlog_row(r) for r in rows):
             return day
     return None
 
@@ -556,6 +602,7 @@ def run_full_scrape_details(limit: int = 0) -> int:
     fetched = 0
     matched_n = 0
     with StateStore() as store:
+        _ensure_shortage_cutoff(store)
         pending = store.pending_inspected(limit if limit and limit > 0 else None)
         log.info("Details phase: %d pending listings in this batch.", len(pending))
         for row in pending:
@@ -588,6 +635,7 @@ def run_full_scrape_details(limit: int = 0) -> int:
 def run_full_scrape_notify() -> None:
     token, chat_id = get_telegram_creds()
     with StateStore() as store:
+        _ensure_shortage_cutoff(store)
         never_collected = store.get_meta("last_successful_collect_on") is None
         if never_collected:
             rows = store.all_unnotified_jobs()
@@ -598,20 +646,7 @@ def run_full_scrape_notify() -> None:
                     len(listings),
                 )
                 seed_backlog(listings, store)
-            notify.send_new_matches_report(
-                token, chat_id, [], title=_new_listings_title(store), store=store
-            )
-            _publish_next_backlog_day(store, token, chat_id)
-        else:
-            if should_publish_new_matches():
-                rows = store.unnotified_new_matches()
-                if rows or config.NOTIFY_WHEN_NO_NEW_MATCHES:
-                    notify.send_new_matches_report(
-                        token, chat_id, rows, title=_new_listings_title(store), store=store
-                    )
-                for row in rows:
-                    store.mark_notified(row["web_sifra"])
-            _publish_next_backlog_day(store, token, chat_id)
+        _dispatch_telegram(store, token, chat_id)
         _finish_successful_collect(store)
         store.mark_full_scrape_success()
         run = store.latest_scrape_run()
