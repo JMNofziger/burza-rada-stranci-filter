@@ -71,7 +71,23 @@ class NotifyTests(unittest.TestCase):
         line = notify.format_job_line(job)
         self.assertIn("Test", line)
         self.assertIn("City centre", line)
+        self.assertNotIn("Shortage", line)
         self.assertIn("Acme", line)
+
+    def test_shortage_tag_is_on_the_telegram_line(self):
+        job = JobListing(
+            web_sifra="1",
+            title="KUHAR",
+            employer="Acme",
+            location_raw="ZAGREB",
+            deadline_raw="",
+            detail_url="https://example.test",
+            deadline_date=date(2026, 12, 3),
+            location_score=1,
+            shortage_match=True,
+        )
+        line = notify.format_job_line(job)
+        self.assertIn("Shortage · Zagreb", line)
 
     def test_job_line_translates_title_and_employer(self):
         job = JobListing(
@@ -228,6 +244,60 @@ class NotifyTests(unittest.TestCase):
         sleep.assert_not_called()
 
 
+class ShortageDispatchTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.store = StateStore(Path(self.tmp.name) / "test.sqlite3")
+        self.store.set_meta(config.TELEGRAM_SHORTAGE_INCLUDE_AFTER_KEY, "2026-11-17T05:00:00")
+
+    def tearDown(self):
+        self.store.close()
+        self.tmp.cleanup()
+
+    def _store_shortage(self, sifra: str, deadline: date, seen: str) -> None:
+        job = JobListing(
+            web_sifra=sifra,
+            title=f"Job {sifra}",
+            employer="Acme",
+            location_raw="ZAGREB",
+            deadline_raw="",
+            detail_url=f"https://example.test/{sifra}",
+            deadline_date=deadline,
+            foreign_score=0,
+            location_score=1,
+            shortage_match=True,
+        )
+        self.store.upsert_job(job, digest_day=None)
+        self.store._conn.execute(
+            "UPDATE jobs SET first_seen_at = ? WHERE web_sifra = ?",
+            (seen, sifra),
+        )
+        self.store._conn.commit()
+
+    def test_dispatch_sends_long_deadline_backfill_and_skips_zero_notice(self):
+        from main import _dispatch_telegram
+
+        self._store_shortage("long", date(2026, 12, 3), "2026-11-10T10:00:00")
+        self._store_shortage("soon", date(2026, 11, 20), "2026-11-10T10:00:00")
+        digests = []
+        news = []
+
+        with patch("main.notify.send_telegram_digest", side_effect=lambda *a, **k: digests.append(a)):
+            with patch("main.notify.send_new_matches_report", side_effect=lambda *a, **k: news.append(a)):
+                _dispatch_telegram(self.store, "tok", "1")
+
+        self.assertEqual(len(digests), 1)
+        self.assertEqual(digests[0][2], "Shortage listings")
+        self.assertEqual([row["web_sifra"] for row in digests[0][3]], ["long"])
+        self.assertEqual(news, [])
+        notified = {
+            row["web_sifra"]: row["notified_at"]
+            for row in self.store._conn.execute("SELECT web_sifra, notified_at FROM jobs")
+        }
+        self.assertIsNotNone(notified["long"])
+        self.assertIsNone(notified["soon"])
+
+
 class StorageNewMatchTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -258,16 +328,80 @@ class StorageNewMatchTests(unittest.TestCase):
         new = self.store.unnotified_new_matches()
         self.assertEqual([row["web_sifra"] for row in new], ["fresh"])
 
-    def test_shortage_only_jobs_are_not_telegram_new_matches(self):
+    def _seen(self, sifra: str, stamp: str) -> None:
+        self.store._conn.execute(
+            "UPDATE jobs SET first_seen_at = ? WHERE web_sifra = ?",
+            (stamp, sifra),
+        )
+        self.store._conn.commit()
+
+    def test_new_shortage_jobs_in_zagreb_are_telegram_matches(self):
+        self.store.set_meta(config.TELEGRAM_SHORTAGE_INCLUDE_AFTER_KEY, "2026-11-17T00:00:00")
         keyword = self._listing("kw")
+        keyword.deadline_date = date(2026, 11, 25)
         shortage_only = self._listing("uv")
         shortage_only.foreign_score = 0
         shortage_only.shortage_match = True
         shortage_only.shortage_occupations = ["kuhar-kuharica"]
+        shortage_only.deadline_date = date(2026, 11, 28)
+        outer = self._listing("sesvete")
+        outer.foreign_score = 0
+        outer.location_raw = "SESVETE"
+        outer.shortage_match = True
+        soon = self._listing("soon")
+        soon.foreign_score = 0
+        soon.shortage_match = True
+        soon.deadline_date = date(2026, 11, 20)
         self.store.upsert_job(keyword, digest_day=None)
         self.store.upsert_job(shortage_only, digest_day=None)
+        self.store.upsert_job(outer, digest_day=None)
+        self.store.upsert_job(soon, digest_day=None)
+        for sifra in ("kw", "uv", "sesvete", "soon"):
+            self._seen(sifra, "2026-11-17T06:00:00")
         new = [row["web_sifra"] for row in self.store.unnotified_new_matches()]
-        self.assertEqual(new, ["kw"])
+        self.assertEqual(new, ["soon", "kw", "uv"])
+
+    def test_outer_settlement_keyword_ads_stay_out_of_telegram(self):
+        dubrava = self._listing("dubrava")
+        dubrava.location_raw = "ZAGREB-DUBRAVA"
+        self.store.upsert_job(dubrava, digest_day=None)
+        self.assertEqual(list(self.store.unnotified_new_matches()), [])
+
+    def test_shortage_backfill_is_zagreb_and_deadline_after_30_nov(self):
+        cutoff = "2026-11-17T05:00:00"
+        self.store.set_meta(config.TELEGRAM_SHORTAGE_INCLUDE_AFTER_KEY, cutoff)
+
+        def shortage(sifra: str, location: str, deadline: date | None) -> None:
+            job = self._listing(sifra)
+            job.foreign_score = 0
+            job.shortage_match = True
+            job.location_raw = location
+            job.deadline_date = deadline
+            self.store.upsert_job(job, digest_day=None)
+            self._seen(sifra, "2026-11-10T10:00:00")
+
+        shortage("long", "ZAGREB", date(2026, 12, 1))
+        shortage("exact", "ZAGREB", date(2026, 11, 30))
+        shortage("soon", "ZAGREB", date(2026, 11, 20))
+        shortage("sesvete", "SESVETE", date(2026, 12, 6))
+        shortage("novi", "ZAGREB-NOVI ZAGREB", date(2026, 12, 6))
+        fresh = self._listing("fresh")
+        fresh.foreign_score = 0
+        fresh.shortage_match = True
+        fresh.deadline_date = date(2026, 12, 10)
+        self.store.upsert_job(fresh, digest_day=None)
+        self._seen("fresh", "2026-11-17T06:00:00")
+        old_keyword = self._listing("oldkw")
+        old_keyword.deadline_date = date(2026, 12, 2)
+        self.store.upsert_job(old_keyword, digest_day=None)
+        self._seen("oldkw", "2026-11-10T10:00:00")
+
+        backfill = [row["web_sifra"] for row in self.store.shortage_backfill_matches(
+            config.SHORTAGE_BACKFILL_DEADLINE_AFTER, cutoff
+        )]
+        self.assertEqual(backfill, ["long"])
+        new = [row["web_sifra"] for row in self.store.unnotified_new_matches()]
+        self.assertEqual(new, ["oldkw", "fresh"])
 
     def test_collect_gap_days(self):
         self.assertIsNone(self.store.days_since_last_success(date(2026, 8, 21)))

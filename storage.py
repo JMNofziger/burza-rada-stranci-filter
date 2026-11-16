@@ -112,6 +112,18 @@ def location_label_for(location_score: int) -> str:
     return "City centre" if location_score == 2 else "Zagreb"
 
 
+def telegram_settlement_allowed(location_raw: str | None) -> bool:
+    """True when the HZZ settlement label is inside the Telegram ride limit."""
+    label = " ".join((location_raw or "").split()).casefold()
+    return label in config.TELEGRAM_SETTLEMENTS
+
+
+def _telegram_settlement_clause(column: str = "location_raw") -> tuple[str, tuple[str, ...]]:
+    labels = tuple(sorted(config.TELEGRAM_SETTLEMENTS))
+    placeholders = ", ".join("?" for _ in labels)
+    return f"lower(trim({column})) IN ({placeholders})", labels
+
+
 def _tracks_for(data: dict) -> list[str]:
     tracks: list[str] = []
     if int(data.get("foreign_score") or 0) >= config.FOREIGN_SCORE_THRESHOLD:
@@ -208,18 +220,70 @@ class StateStore:
         return cur.fetchone() is None
 
     def unnotified_new_matches(self) -> list[sqlite3.Row]:
-        """Jobs discovered after bootstrap (digest_day IS NULL) and not yet published."""
+        """Unsent plain-Zagreb jobs for the daily Telegram.
+
+        Foreigner-text matches go out whenever they are still unsent.
+        Shortage-title matches go out once their first_seen_at is on or after
+        the include-after stamp. Older shortage-only ads are the one-time
+        backfill, not this query.
+        """
+        where, params = self._telegram_new_match_filter()
         cur = self._conn.execute(
-            """
+            f"""
+            SELECT * FROM jobs
+            WHERE {where}
+            ORDER BY deadline_date IS NULL, deadline_date
+            """,
+            params,
+        )
+        return cur.fetchall()
+
+    def shortage_backfill_matches(self, deadline_after: str, seen_before: str) -> list[sqlite3.Row]:
+        """Stored shortage-only Zagreb ads whose deadline is after `deadline_after`.
+
+        One-time catch-up. Ads first seen on or after `seen_before` are new
+        matches, not part of this batch. Keyword matches are not included.
+        """
+        settlement_sql, settlement_params = _telegram_settlement_clause()
+        cur = self._conn.execute(
+            f"""
             SELECT * FROM jobs
             WHERE notified_at IS NULL
               AND digest_day IS NULL
-              AND foreign_score >= ?
+              AND shortage_match = 1
+              AND foreign_score < ?
+              AND {settlement_sql}
+              AND deadline_date > ?
+              AND first_seen_at < ?
             ORDER BY deadline_date IS NULL, deadline_date
             """,
-            (config.FOREIGN_SCORE_THRESHOLD,),
+            (
+                config.FOREIGN_SCORE_THRESHOLD,
+                *settlement_params,
+                deadline_after,
+                seen_before,
+            ),
         )
         return cur.fetchall()
+
+    def _telegram_new_match_filter(self) -> tuple[str, tuple]:
+        settlement_sql, settlement_params = _telegram_settlement_clause()
+        cutoff = self.get_meta(config.TELEGRAM_SHORTAGE_INCLUDE_AFTER_KEY)
+        clauses = [
+            "notified_at IS NULL",
+            "digest_day IS NULL",
+            settlement_sql,
+        ]
+        params: list = list(settlement_params)
+        if cutoff:
+            clauses.append(
+                "(foreign_score >= ? OR (shortage_match = 1 AND first_seen_at >= ?))"
+            )
+            params.extend((config.FOREIGN_SCORE_THRESHOLD, cutoff))
+        else:
+            clauses.append("foreign_score >= ?")
+            params.append(config.FOREIGN_SCORE_THRESHOLD)
+        return " AND ".join(clauses), tuple(params)
 
     @contextmanager
     def transaction(self):

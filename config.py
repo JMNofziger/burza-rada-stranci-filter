@@ -125,6 +125,17 @@ NEGATION_MARKERS = ["ne ", "nije ", "nema ", "bez ", "isključivo eu", "samo eu 
 
 FOREIGN_SCORE_THRESHOLD = 2  # minimum accumulated weight to flag a job
 
+# Telegram settlement gate. The board still keeps every Grad Zagreb label.
+# Plain "ZAGREB" is the only HZZ settlement label inside a 15-minute tram
+# ride of Trg bana Josipa Jelačića (Črnomerec ~14 min, Park Maksimir ~13,
+# Držićeva ~14). District and outer labels stay on the board only.
+TELEGRAM_SETTLEMENTS = frozenset({"zagreb"})
+# Shortage-title ads first seen before this stamp are not "new". The one-time
+# catch-up below sends the long-deadline subset; later ads use the stamp.
+TELEGRAM_SHORTAGE_INCLUDE_AFTER_KEY = "telegram_shortage_include_after"
+# More than 14 days after 2026-11-16. Used once, for shortage ads already stored.
+SHORTAGE_BACKFILL_DEADLINE_AFTER = "2026-11-30"
+
 # ---------------------------------------------------------------------------
 # Zagreb / city-centre location signals
 # ---------------------------------------------------------------------------
