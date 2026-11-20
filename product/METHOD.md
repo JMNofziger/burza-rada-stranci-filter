@@ -85,6 +85,7 @@ Match the listing **title** to the official HZZ Upravno vijeće list of occupati
 - Occupations whose `regions` are neither `all` nor `grad_zagreb` are ignored.
 - Gendered HZZ titles (`PROGRAMER / KA`, `ZAVARIVAČ / ICA`) are normalized before match.
 - A hit does **not** mean the employer will sponsor or that Art. 99 (turnover, domestic-staff ratio) is satisfied. It means the **occupation title** is on the TTR-exemption list.
+- From 4 June 2026 (NN 55/2026, Art. 99(12) and Art. 88(10)–(12)) a list hit is the 10% full-time domestic-staff ratio and work limited to the police administrations where that occupation is on the list.
 
 Shortage listings are on the board and tagged. Telegram sends them when the settlement label is `ZAGREB`, with a Shortage tag. Ads already stored before that rule are sent once, and only when the deadline is after 2026-11-30.
 
@@ -127,7 +128,7 @@ Ponderirane fraze u naslovu + poslodavcu + opisu. Prag `FOREIGN_SCORE_THRESHOLD 
 
 ### Kolosijek B — deficitarno zanimanje UV (signal postupka)
 
-Naslov oglasa se uspoređuje sa službenom listom zanimanja Upravnog vijeća HZZ-a za koja se **ne provodi test tržišta rada**. Transkripcija: `data/uv-occupations.json`. Nije baza poslodavaca koji su već zapošljavali strance.
+Naslov oglasa se uspoređuje sa službenom listom zanimanja Upravnog vijeća HZZ-a za koja se **ne provodi test tržišta rada**. Transkripcija: `data/uv-occupations.json`. Nije baza poslodavaca koji su već zapošljavali strance. Od 4. lipnja 2026. (NN 55/2026, čl. 99. st. 12. i čl. 88. st. 10.–12.) pogodak na listi znači omjer od 10 % domaćih radnika na puno radno vrijeme i rad samo u policijskim upravama u kojima je to zanimanje na listi.
 
 ### Ažuriranje liste
 

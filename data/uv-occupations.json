@@ -7,7 +7,7 @@
     "hubUrl": "https://www.hzz.hr/usluge/radne-dozvole-za-zaposljavanje-stranaca-i-test-trzista-rada/",
     "sourceName": "MUP/HZZ — Lista zanimanja (izuzetak od TTR) PDF",
     "sourceTier": 1,
-    "verifiedDate": "2026-08-21",
+    "verifiedDate": "2026-11-20",
     "sourceSha256": "268716d7facbc07f28e147f8a913b77c1ac75d729c00bbdfe7ee4a4d9da1bafb",
     "note": "Official MUP/HZZ TTR-exemption occupation list (Upravno vijeće). Transcribed from the 2023 PDF; re-check hubUrl and sourceUrl before relying on it. sourceSha256 is SHA-256 of sourceUrl bytes as of verifiedDate."
   },
